@@ -10,6 +10,8 @@ jobs:
   quality:
     name: Quality & Tests
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -17,7 +19,6 @@ jobs:
         uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
-          version: "latest"
 
       - name: Set up Python 3.12
         run: uv python install 3.12
@@ -32,12 +33,23 @@ jobs:
         run: uv run mypy justpipe
 
       - name: Run tests with Coverage
-        run: uv run pytest --cov=justpipe --cov-report=xml
+        run: |
+          uv run pytest --cov=justpipe --cov-report=term-missing > coverage.txt
+          cat coverage.txt
 
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
+      - name: Generate Badge
+        if: github.ref == 'refs/heads/main'
+        run: |
+          uv run coverage-badge -o coverage.svg -f
+
+      - name: Deploy Badge
+        if: github.ref == 'refs/heads/main'
+        uses: peaceiris/actions-gh-pages@v4
         with:
-          file: ./coverage.xml
-          fail_ci_if_error: false
-        env:
-          CODECOV_TOKEN: ${{ secrets.CODECOV_TOKEN }}
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: .
+          publish_branch: badges
+          keep_files: true
+          destination_dir: .
+          user_name: 'github-actions[bot]'
+          user_email: 'github-actions[bot]@users.noreply.github.com'
