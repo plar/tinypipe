@@ -1,0 +1,7 @@
+.python-version
+PRD.md
+.coverage
+__pycache__/
+
+# Local conductor files
+conductor/
