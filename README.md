@@ -17,6 +17,8 @@ pip install "justpipe[retry]"
 
 ## Quick Start
 
+[View Example Code](examples/01_quick_start)
+
 ```python
 import asyncio
 from dataclasses import dataclass
@@ -29,13 +31,13 @@ class State:
 # Type-safe pipeline definition
 pipe = Pipe[State, None]()
 
-@pipe.step(to="respond")
-async def greet(state: State):
-    state.message = "Hello"
-
 @pipe.step()
 async def respond(state: State):
     yield f"{state.message}, World!"
+
+@pipe.step(to=respond)
+async def greet(state: State):
+    state.message = "Hello"
 
 async def main():
     state = State()
@@ -48,19 +50,14 @@ asyncio.run(main())
 
 ## Features
 
-- **Python 3.12+** - Leveraging modern `asyncio.TaskGroup` and generics.
-- **Zero dependencies** - Core library has no required dependencies.
-- **Async-first** - Built on `asyncio` for non-blocking execution.
-- **Streaming** - Yield tokens from any step using async generators.
-- **Type-safe** - Full generic type support with `Pipe[StateT, ContextT]`.
-- **Smart injection** - Automatic state/context injection based on parameter names (`state`, `ctx`) or types.
-- **Parallel execution** - Fan-out to multiple steps with implicit barrier synchronization.
-- **Dynamic routing** - Return `Next("step_name")` for runtime branching.
-- **Dynamic Parallelism** - Return `Map(items=[...], target="step")` to spawn dynamic workers.
-- **Composition** - Return `Run(pipe=sub, state=...)` to execute sub-pipelines.
-- **Suspension** - Return `Suspend(reason=...)` to pause execution mid-flow.
-- **Middleware** - Extensible with retry, logging, or custom middleware.
-- **Visualization** - Generate Mermaid diagrams with `pipe.graph()`.
+- **Code-as-Graph** - Define complex workflows using simple decorators (`@step`, `@map`, `@switch`).
+- **Type-Safe** - Full generic type support `Pipe[StateT, ContextT]` with static analysis.
+- **Visualization** - Generate beautiful Mermaid diagrams with `pipe.graph()`.
+- **Resilience** - Built-in backpressure, retries, and timeouts.
+- **Async & Streaming** - Native `asyncio` support with generator streaming.
+- **Zero dependencies** - Core library is lightweight (dependencies only for extras).
+- **Parallel execution** - Fan-out with implicit barrier synchronization.
+- **Validated** - Graph integrity checks (cycles, broken references) with `pipe.validate()`.
 
 ```mermaid
 graph TD
@@ -104,6 +101,8 @@ graph TD
     classDef default fill:#f8f9fa,stroke:#dee2e6,stroke-width:1px;
     classDef step fill:#e3f2fd,stroke:#1976d2,stroke-width:2px,color:#0d47a1;
     classDef streaming fill:#fff3e0,stroke:#f57c00,stroke-width:2px,color:#e65100;
+    classDef map fill:#e8f5e9,stroke:#388e3c,stroke-width:2px,color:#1b5e20;
+    classDef switch fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#4a148c;
     classDef isolated fill:#fce4ec,stroke:#c2185b,stroke-width:2px,stroke-dasharray: 5 5,color:#880e4f;
     classDef startEnd fill:#e8f5e9,stroke:#388e3c,stroke-width:3px,color:#1b5e20;
     class n1,n3,n6,n7,n8 step;
@@ -114,63 +113,75 @@ graph TD
 
 ## Parallel Execution (DAG)
 
-Static parallelism is defined by linking one step to multiple targets.
+[View Example Code](examples/02_parallel_dag)
+
+Static parallelism is defined by linking one step to multiple targets. Use `barrier_timeout` to prevent the pipeline from hanging if a parallel branch fails silently.
 
 ```python
-@pipe.step("start", to=["fetch_a", "fetch_b"])
-async def start(state):
-    pass
-
-@pipe.step("fetch_a", to="combine")
-async def fetch_a(state):
-    state.a = await fetch_from_api_a()
-
-@pipe.step("fetch_b", to="combine")
-async def fetch_b(state):
-    state.b = await fetch_from_api_b()
-
-@pipe.step("combine")
+@pipe.step(barrier_timeout=5.0)
 async def combine(state):
     # Implicit Barrier: Runs only after BOTH fetch_a and fetch_b complete
     state.result = state.a + state.b
+
+@pipe.step(to=combine)
+async def fetch_a(state):
+    state.a = await fetch_from_api_a()
+
+@pipe.step(to=combine)
+async def fetch_b(state):
+    state.b = await fetch_from_api_b()
+
+@pipe.step(to=[fetch_a, fetch_b])
+async def start(state):
+    pass
 ```
 
 ## Dynamic Parallelism (Map)
 
-Use `Map` to process a list of items in parallel.
+[View Example Code](examples/03_dynamic_map)
+
+Use `@pipe.map` to process a list of items in parallel. The decorated function must return an iterable.
 
 ```python
-from justpipe import Map
-
-@pipe.step("process_batch")
-async def process_batch(state):
-    # Spawns 'worker' step for each item in the list
-    # 'target' must be a registered step name
-    return Map(items=[1, 2, 3], target="worker")
-
 @pipe.step("worker")
 async def worker(item: int, state):
     # 'item' is injected automatically because it's not a state/context arg
     print(f"Processing {item}")
+
+@pipe.map(using=worker)
+async def process_batch(state):
+    # Spawns 'worker' step for each item in the returned list
+    return [1, 2, 3]
 ```
 
-## Dynamic Routing
+## Dynamic Routing (Switch)
 
-Use `Next` to change flow at runtime.
+[View Example Code](examples/04_dynamic_routing)
+
+Use `@pipe.switch` to route execution based on the return value.
 
 ```python
-from justpipe import Next
+@pipe.step("positive_handler")
+async def handle_pos(state): ...
 
-@pipe.step("decide")
-async def decide(state):
-    if state.value > 0:
-        return Next("positive_handler")
-    return Next("negative_handler")
+@pipe.step("negative_handler")
+async def handle_neg(state): ...
+
+@pipe.switch(routes={
+    "pos": "positive_handler", 
+    "neg": "negative_handler"
+})
+async def decide(state) -> str:
+    return "pos" if state.value > 0 else "neg"
 ```
+
+Alternatively, any step can simply return the name of the next step (as a string) to jump dynamically.
 
 ## Suspension
 
-Use `Suspend` to pause execution. The event stream will yield a `SUSPEND` event and then finish.
+[View Example Code](examples/05_suspension_resume)
+
+Use `Suspend` to pause execution. The event stream will yield a `SUSPEND` event and then stop.
 
 ```python
 from justpipe import Suspend
@@ -181,24 +192,25 @@ async def validate(state):
         return Suspend(reason="wait_for_human")
 ```
 
-## Sub-pipelines
+## Sub-pipelines (Composition)
 
-Compose complex workflows by running other pipelines.
+[View Example Code](examples/06_subpipelines)
+
+Compose complex workflows by running other pipelines as steps.
 
 ```python
-from justpipe import Run
-
 sub_pipe = Pipe()
 # ... define sub_pipe steps ...
 
-@pipe.step("execute_sub")
-async def execute_sub(state):
-    # Executes the sub-pipeline with the current state (or a new one)
-    # Events from sub_pipe are namespaced (e.g., "execute_sub:step_name")
-    return Run(pipe=sub_pipe, state=state)
+@pipe.sub("execute_sub", using=sub_pipe)
+async def delegate(state):
+    # Pass the state (or a transformation of it) to the sub-pipeline
+    return state
 ```
 
 ## Streaming Tokens
+
+[View Example Code](examples/07_streaming)
 
 ```python
 @pipe.step("stream")
@@ -207,7 +219,9 @@ async def stream(state):
         yield chunk  # Yields TOKEN events
 ```
 
-## Retry with Tenacity
+## Reliability & Retries
+
+[View Example Code](examples/08_reliability_retry)
 
 justpipe has built-in support for `tenacity` if installed.
 
@@ -222,24 +236,40 @@ async def flaky_api(state):
     response = await unreliable_api_call()
 ```
 
+## Backpressure
+
+Protect your application from memory exhaustion by limiting the event queue size. When the queue is full, producer steps will automatically block.
+
+```python
+# Set a global limit for the pipe
+pipe = Pipe(queue_size=100)
+
+# Or override it at runtime
+async for event in pipe.run(state, queue_size=10):
+    ...
+```
+
 ## Middleware
+
+[View Example Code](examples/09_middleware)
 
 Middleware wraps every step execution. Useful for logging, tracing, or error handling.
 
 ```python
-def logging_middleware(func, kwargs):
-    async def wrapped(*args, **kw):
-        print(f"Starting {func.__name__}")
-        try:
-            return await func(*args, **kw)
-        finally:
-            print(f"Finished {func.__name__}")
-    return wrapped
+from justpipe import simple_logging_middleware, StepContext
 
-pipe.add_middleware(logging_middleware)
+pipe.add_middleware(simple_logging_middleware)
+
+def custom_middleware(func, ctx: StepContext):
+    async def wrapped(**kwargs):
+        print(f"Entering {ctx.name}")
+        return await func(**kwargs)
+    return wrapped
 ```
 
 ## Lifecycle Hooks
+
+[View Example Code](examples/10_lifecycle_hooks)
 
 Hooks are useful for managing external resources like database connections or API clients.
 
@@ -253,38 +283,40 @@ async def cleanup(context):
     await context.db.close()
 ```
 
-## Timeout Handling
+## Visualization & Introspection
 
-You can specify a `timeout` (in seconds) for any step.
+[View Example Code](examples/11_visualization)
+
+Inspect registered steps or generate Mermaid diagrams.
 
 ```python
-@pipe.step("api_call", timeout=5.0)
-async def api_call(state):
-    # Raises TimeoutError if it takes longer than 5 seconds
-    await slow_external_api()
+# Generate Mermaid graph
+print(pipe.graph())
+
+# Programmatic introspection
+for step in pipe.steps():
+    print(f"{step.name} -> {step.targets}")
 ```
 
-## Event Types
+## Error Handling
 
-The event stream allows you to monitor and react to the pipeline execution.
+Define how to recover from failures at the step or pipeline level.
 
 ```python
-async for event in pipe.run(state, context):
-    match event.type:
-        case EventType.START:
-            print("Pipeline started")
-        case EventType.STEP_START:
-            print(f"Step {event.stage} starting")
-        case EventType.TOKEN:
-            print(f"Token: {event.data}")
-        case EventType.STEP_END:
-            print(f"Step {event.stage} finished")
-        case EventType.ERROR:
-            print(f"Error: {event.data}")
-        case EventType.SUSPEND:
-             print(f"Suspended: {event.data}")
-        case EventType.FINISH:
-            print("Pipeline finished")
+from justpipe import Retry, Skip
+
+# 1. Step-level handler
+async def handle_api_error(error, state):
+    return Retry() if isinstance(error, TransientError) else Skip()
+
+@pipe.step(on_error=handle_api_error)
+async def call_api(state):
+    ...
+
+# 2. Global handler
+@pipe.on_error
+async def global_handler(error, state, step_name):
+    print(f"Global catch: {step_name} failed with {error}")
 ```
 
 ## Development

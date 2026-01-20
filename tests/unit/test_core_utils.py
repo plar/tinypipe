@@ -66,7 +66,7 @@ def test_analyze_unknown_arg_allowed() -> None:
     async def step(unknown_arg: Any, s: Any) -> None:
         pass
 
-    mapping = _analyze_signature(step, MockState, MockContext)
+    mapping = _analyze_signature(step, MockState, MockContext, expected_unknowns=1)
     assert mapping["unknown_arg"] == "unknown"
     assert mapping["s"] == "state"
 

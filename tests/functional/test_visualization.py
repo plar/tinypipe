@@ -67,9 +67,12 @@ def test_isolated_steps() -> None:
         pass
 
     mermaid = pipe.graph()
-    assert "subgraph utilities" in mermaid
+    # Both steps are roots, so neither is isolated
+    assert "subgraph utilities" not in mermaid
+    assert "Start -->" in mermaid
+    assert "Main" in mermaid
+    assert "Orphan" in mermaid
     assert '["Orphan"]' in mermaid
-    assert ":::isolated" in mermaid
 
 
 def test_streaming_styling() -> None:
@@ -177,9 +180,11 @@ def test_id_sanitization() -> None:
 
 
 def test_renderer_internal_methods() -> None:
-    from justpipe.visualization import _MermaidRenderer, MermaidTheme
+    from justpipe.visualization import MermaidRenderer, MermaidTheme, VisualAST
 
-    renderer = _MermaidRenderer({}, {}, MermaidTheme())
+    # Build an empty AST
+    ast = VisualAST.from_pipe({}, {}, {})
+    renderer = MermaidRenderer(ast, MermaidTheme())
 
     # Test _add indentation
     renderer._add("test", indent=2)

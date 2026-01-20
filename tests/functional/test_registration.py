@@ -54,3 +54,16 @@ def test_step_resolve_callable_targets() -> None:
         pass
 
     assert pipe._topology["start"] == ["target"]
+
+
+def test_step_decorator_no_parens_explicit_call() -> None:
+    # Explicitly calling pipe.step(func)
+    pipe: Pipe[Any, Any] = Pipe()
+
+    async def my_step() -> None:
+        pass
+
+    # This simulates @pipe.step without ()
+    pipe.step(my_step)
+
+    assert "my_step" in pipe._steps

@@ -1,7 +1,7 @@
 import pytest
 import asyncio
 from typing import List, Any, Union, Dict
-from justpipe import Pipe, EventType, Map, Run, Suspend
+from justpipe import Pipe, EventType, Suspend
 
 
 @pytest.mark.asyncio
@@ -47,13 +47,13 @@ async def test_dag_barrier_multiple_paths() -> None:
 
 @pytest.mark.asyncio
 async def test_map_parallelism() -> None:
-    """Test Spawning N parallel tasks via Map return type."""
+    """Test Spawning N parallel tasks via @pipe.map decorator."""
     pipe: Pipe[Any, Any] = Pipe()
     processed: List[Union[int, str]] = []
 
-    @pipe.step("start")
-    async def start() -> Map:
-        return Map(items=[1, 2, 3], target="worker")
+    @pipe.map("start", using="worker", to="end")
+    async def start() -> List[int]:
+        return [1, 2, 3]
 
     @pipe.step("worker")
     async def worker(item: int) -> None:
@@ -64,9 +64,6 @@ async def test_map_parallelism() -> None:
     async def end() -> None:
         processed.append("end")
 
-    # Link end to start, so it waits for the map (start) to finish
-    pipe._topology["start"] = ["end"]
-
     async for _ in pipe.run({}):
         pass
 
@@ -76,7 +73,7 @@ async def test_map_parallelism() -> None:
 
 @pytest.mark.asyncio
 async def test_run_subpipeline() -> None:
-    """Test nested pipeline execution via Run return type."""
+    """Test nested pipeline execution via @pipe.sub decorator."""
     sub_pipe: Pipe[Any, Any] = Pipe()
 
     @sub_pipe.step("sub_step")
@@ -85,9 +82,9 @@ async def test_run_subpipeline() -> None:
 
     main_pipe: Pipe[Any, Any] = Pipe()
 
-    @main_pipe.step("runner")
-    async def runner() -> Run:
-        return Run(pipe=sub_pipe, state={})
+    @main_pipe.sub("runner", using=sub_pipe)
+    async def runner() -> Dict[str, Any]:
+        return {}
 
     events = []
     async for event in main_pipe.run({}):
@@ -147,13 +144,13 @@ async def test_step_timeout() -> None:
 
 @pytest.mark.asyncio
 async def test_map_empty_list() -> None:
-    """Verify Map with empty list does not schedule tasks."""
+    """Verify @pipe.map with empty list does not schedule tasks."""
     pipe: Pipe[Any, Any] = Pipe()
     executed = False
 
-    @pipe.step("start")
-    async def start() -> Map:
-        return Map(items=[], target="worker")
+    @pipe.map("start", using="worker")
+    async def start() -> List[int]:
+        return []
 
     @pipe.step("worker")
     async def worker(item: int) -> None:
@@ -168,13 +165,13 @@ async def test_map_empty_list() -> None:
 
 @pytest.mark.asyncio
 async def test_map_no_unknown_args() -> None:
-    """Verify Map item is ignored if target has no unknown args."""
+    """Verify @pipe.map item is ignored if target has no unknown args."""
     pipe: Pipe[Any, Any] = Pipe()
     executed_count = 0
 
-    @pipe.step("start")
-    async def start() -> Map:
-        return Map(items=[1, 2], target="worker")
+    @pipe.map("start", using="worker")
+    async def start() -> List[int]:
+        return [1, 2]
 
     @pipe.step("worker")
     async def worker() -> None:
@@ -189,13 +186,13 @@ async def test_map_no_unknown_args() -> None:
 
 @pytest.mark.asyncio
 async def test_map_multiple_unknown_args() -> None:
-    """Verify Map injects into the first unknown arg."""
+    """Verify @pipe.map injects into the first unknown arg."""
     pipe: Pipe[Any, Any] = Pipe()
     results = []
 
-    @pipe.step("start")
-    async def start() -> Map:
-        return Map(items=[10], target="worker")
+    @pipe.map("start", using="worker")
+    async def start() -> List[int]:
+        return [10]
 
     @pipe.step("worker")
     async def worker(a: int, b: int = 99) -> None:
@@ -219,9 +216,9 @@ async def test_subpipeline_failure() -> None:
 
     main_pipe: Pipe[Any, Any] = Pipe()
 
-    @main_pipe.step("runner")
-    async def runner() -> Run:
-        return Run(pipe=sub_pipe, state={})
+    @main_pipe.sub("runner", using=sub_pipe)
+    async def runner() -> Dict[str, Any]:
+        return {}
 
     events = []
     async for event in main_pipe.run({}):
