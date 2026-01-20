@@ -1,0 +1,13 @@
+Initial commit: justpipe - lightweight async orchestration for AI
+
+This release marks the stable foundation of justpipe (v0.5.0), a lightweight, 
+type-safe asynchronous orchestration framework designed for AI workflows and 
+complex logic pipelines.
+
+Key Features:
+- Declarative API: Define pipelines using @pipe.map, @pipe.switch, and @pipe.on_error.
+- Visualization: Integrated Mermaid.js support via an intermediate Visual AST.
+- Reliability: Built-in support for retries, backpressure, and graceful shutdowns.
+- Observability: Middleware system, lifecycle hooks, and pipeline introspection.
+- Subpipelines: First-class support for nesting and modular pipeline design.
+- Async Native: Fully leverages Python's asyncio for high-performance execution.
