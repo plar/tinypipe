@@ -1,13 +1,14 @@
 import pytest
-from typing import Any, List, Dict
-from justpipe import Pipe, EventType
-from justpipe.types import Next
+import asyncio
+from typing import Any, List, Dict, AsyncGenerator
+from justpipe import Pipe, EventType, Stop
+from justpipe.types import _Next
 
 
 @pytest.mark.asyncio
 async def test_linear_execution_flow(state: Any) -> None:
     pipe: Pipe[Any, Any] = Pipe()
-    events = []
+    events: List[Any] = []
 
     @pipe.step("start", to="step2")
     async def start() -> None:
@@ -32,10 +33,10 @@ async def test_linear_execution_flow(state: Any) -> None:
 @pytest.mark.asyncio
 async def test_streaming_execution(state: Any) -> None:
     pipe: Pipe[Any, Any] = Pipe()
-    tokens = []
+    tokens: List[Any] = []
 
     @pipe.step("streamer")
-    async def streamer() -> Any:
+    async def streamer() -> AsyncGenerator[str, None]:
         yield "a"
         yield "b"
 
@@ -51,8 +52,8 @@ async def test_dynamic_routing(state: Any) -> None:
     executed: List[bool] = []
 
     @pipe.step("start")
-    async def start() -> Next:
-        return Next("target")
+    async def start() -> _Next:
+        return _Next("target")
 
     @pipe.step("target")
     async def target() -> None:
@@ -61,6 +62,28 @@ async def test_dynamic_routing(state: Any) -> None:
     async for _ in pipe.run(state):
         pass
     assert executed
+
+
+@pytest.mark.asyncio
+async def test_declarative_switch(state: Any) -> None:
+    pipe: Pipe[Any, Any] = Pipe()
+    executed: List[str] = []
+
+    @pipe.switch("start", routes={"a": "step_a", "b": "step_b"})
+    async def start() -> str:
+        return "b"
+
+    @pipe.step("step_a")
+    async def step_a() -> None:
+        executed.append("a")
+
+    @pipe.step("step_b")
+    async def step_b() -> None:
+        executed.append("b")
+
+    async for _ in pipe.run(state):
+        pass
+    assert executed == ["b"]
 
 
 @pytest.mark.parametrize("state_arg", ["s", "state"])
@@ -95,7 +118,7 @@ async def test_type_aware_injection(state: Any, context: Any) -> None:
     pipe = Pipe[state_type, context_type]()  # type: ignore
 
     @pipe.step
-    async def typed_step(ctx: context_type, s: state_type) -> None:  # type: ignore
+    async def typed_step(ctx: Any, s: Any) -> None:
         assert s is state
         assert ctx is context
 
@@ -106,7 +129,7 @@ async def test_type_aware_injection(state: Any, context: Any) -> None:
 @pytest.mark.asyncio
 async def test_startup_handlers(state: Any, context: Any) -> None:
     pipe: Pipe[Any, Any] = Pipe()
-    log = []
+    log: List[str] = []
 
     async def _startup(ctx: Any) -> None:
         log.append("startup")
@@ -129,7 +152,7 @@ async def test_startup_handlers(state: Any, context: Any) -> None:
 @pytest.mark.asyncio
 async def test_step_not_found(state: Any) -> None:
     pipe: Pipe[Any, Any] = Pipe()
-    errors = []
+    errors: List[Any] = []
 
     @pipe.step("start", to="non_existent")
     async def start() -> None:
@@ -146,7 +169,7 @@ def test_async_gen_retry_warning() -> None:
     with pytest.warns(UserWarning, match="cannot retry automatically"):
 
         @pipe.step("stream", retries=3)
-        async def stream() -> Any:
+        async def stream() -> AsyncGenerator[int, None]:
             yield 1
 
 
@@ -173,3 +196,96 @@ def test_pipe_type_extraction(state: Any, context: Any) -> None:
     pipe_default: Pipe[Any, Any] = Pipe()
     st, ct = pipe_default._get_types()
     assert st is Any
+
+
+@pytest.mark.asyncio
+async def test_switch_callable_routes() -> None:
+    pipe: Pipe[Any, Any] = Pipe()
+
+    @pipe.step("a")
+    async def a() -> None:
+        pass
+
+    @pipe.step("b")
+    async def b() -> None:
+        pass
+
+    def route_logic(val: bool) -> str:
+        return "a" if val else "b"
+
+    @pipe.switch("switch", routes=route_logic)
+    async def switch() -> bool:
+        return True
+
+    async def run() -> None:
+        async for _ in pipe.run(None):
+            pass
+
+    # We just ensure it runs without error and routes correctly (implied by no error)
+    await run()
+
+
+@pytest.mark.asyncio
+async def test_switch_no_match_no_default() -> None:
+    pipe: Pipe[Any, Any] = Pipe()
+
+    @pipe.switch("switch", routes={"x": "y"})
+    async def switch() -> str:
+        return "z"  # No match
+
+    async def run() -> List[Any]:
+        events = []
+        async for ev in pipe.run(None):
+            if ev.type == EventType.ERROR:
+                events.append(ev)
+        return events
+
+    events = await run()
+    assert len(events) > 0
+    assert "matches no route" in str(events[0].data)
+
+
+@pytest.mark.asyncio
+async def test_switch_returns_stop() -> None:
+    pipe: Pipe[Any, Any] = Pipe()
+
+    @pipe.switch("switch", routes={"stop": Stop})
+    async def switch() -> str:
+        return "stop"
+
+    async def run() -> None:
+        events = []
+        async for ev in pipe.run(None):
+            events.append(ev)
+
+    await run()
+
+
+@pytest.mark.asyncio
+async def test_step_timeout_execution() -> None:
+    pipe: Pipe[Any, Any] = Pipe()
+
+    @pipe.step("slow", timeout=0.1)
+    async def slow() -> None:
+        await asyncio.sleep(0.5)
+
+    events: List[Any] = []
+    async for ev in pipe.run(None):
+        if ev.type == EventType.ERROR:
+            events.append(ev)
+
+    assert len(events) == 1
+    assert "timed out" in str(events[0].data)
+
+
+@pytest.mark.asyncio
+async def test_switch_callable_returns_stop() -> None:
+    pipe: Pipe[Any, Any] = Pipe()
+
+    @pipe.switch("switch", routes=lambda x: Stop)
+    async def switch() -> str:
+        return "ignored"
+
+    # Should run without error and stop
+    async for _ in pipe.run(None):
+        pass

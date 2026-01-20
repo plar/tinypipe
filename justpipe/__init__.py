@@ -1,13 +1,28 @@
-from .core import Pipe, Middleware
-from .types import Event, EventType, Next, Map, Run, Suspend
+from .core import Pipe, simple_logging_middleware
+from .types import (
+    Event,
+    EventType,
+    Suspend,
+    Stop,
+    DefinitionError,
+    Retry,
+    Skip,
+    Raise,
+    StepContext,
+    StepInfo,
+)
 
 __all__ = [
     "Pipe",
+    "simple_logging_middleware",
     "Event",
     "EventType",
-    "Next",
-    "Map",
-    "Run",
     "Suspend",
-    "Middleware",
+    "Stop",
+    "DefinitionError",
+    "Retry",
+    "Skip",
+    "Raise",
+    "StepContext",
+    "StepInfo",
 ]

@@ -1,0 +1,8 @@
+{
+  "track_id": "error_handling_api_20260119",
+  "type": "feature",
+  "status": "new",
+  "created_at": "2026-01-19T13:00:00Z",
+  "updated_at": "2026-01-19T13:00:00Z",
+  "description": "add on_error solution for exceptions/user defined exceptions. THink about this API"
+}
