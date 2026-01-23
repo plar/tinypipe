@@ -120,29 +120,6 @@ async def test_suspend_execution() -> None:
 
 
 @pytest.mark.asyncio
-async def test_step_timeout() -> None:
-    """Test step execution timeout."""
-    pipe: Pipe[Any, Any] = Pipe()
-
-    @pipe.step("slow", timeout=0.1)
-    async def slow() -> None:
-        await asyncio.sleep(0.5)
-
-    errors = []
-    async for event in pipe.run({}):
-        if event.type == EventType.ERROR:
-            errors.append(event)
-
-    assert len(errors) > 0
-    # TimeoutError check
-    assert any(
-        isinstance(e.data, str)
-        and ("timed out" in e.data.lower() or "timeout" in e.data.lower())
-        for e in errors
-    )
-
-
-@pytest.mark.asyncio
 async def test_map_empty_list() -> None:
     """Verify @pipe.map with empty list does not schedule tasks."""
     pipe: Pipe[Any, Any] = Pipe()

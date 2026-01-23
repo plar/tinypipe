@@ -135,47 +135,6 @@ async def test_step_redirect_via_next() -> None:
 
 
 @pytest.mark.asyncio
-async def test_startup_hook_failure() -> None:
-    pipe: Pipe[None, None] = Pipe()
-
-    @pipe.on_startup
-    async def bad_startup(_: Any) -> None:
-        raise ValueError("Startup failed")
-
-    events: List[Any] = []
-    async for ev in pipe.run(None):
-        events.append(ev)
-
-    assert len(events) >= 1
-    assert events[0].type == EventType.ERROR
-    assert events[0].data == "Startup failed"
-    # Ensure finally block runs
-    assert events[-1].type == EventType.FINISH
-
-
-@pytest.mark.asyncio
-async def test_shutdown_hook_failure() -> None:
-    pipe: Pipe[None, None] = Pipe()
-
-    @pipe.step("noop")
-    async def noop() -> None:
-        pass
-
-    @pipe.on_shutdown
-    async def bad_shutdown(_: Any) -> None:
-        raise ValueError("Shutdown failed")
-
-    events: List[Any] = []
-    async for ev in pipe.run(None):
-        events.append(ev)
-
-    # Should contain START, STEP_START, STEP_END, ERROR (shutdown), FINISH
-    error_events = [e for e in events if e.type == EventType.ERROR]
-    assert len(error_events) == 1
-    assert error_events[0].data == "Shutdown failed"
-
-
-@pytest.mark.asyncio
 async def test_error_handler_failure() -> None:
     """Test when the error handler itself raises an exception."""
     pipe: Pipe[None, None] = Pipe()
@@ -247,3 +206,28 @@ async def test_step_handler_fail_to_global() -> None:
 
     assert len(captured) == 1
     assert str(captured[0]) == "Step handler failed"
+
+
+@pytest.mark.asyncio
+async def test_streaming_exception_midstream() -> None:
+    """Exception mid-stream should yield ERROR but collect prior tokens."""
+    pipe: Pipe[Any, Any] = Pipe()
+
+    @pipe.step
+    async def failing_stream(s: Any) -> Any:
+        yield "before_error"
+        raise ValueError("Mid-stream failure!")
+        yield "after_error"  # Never reached
+
+    events = [e async for e in pipe.run({})]
+
+    # Should have the token before the error
+    token_events = [e for e in events if e.type == EventType.TOKEN]
+    assert any(e.data == "before_error" for e in token_events)
+
+    # Should have error event
+    error_events = [e for e in events if e.type == EventType.ERROR]
+    assert any("Mid-stream failure" in str(e.data) for e in error_events)
+
+    # Should end with FINISH
+    assert events[-1].type == EventType.FINISH

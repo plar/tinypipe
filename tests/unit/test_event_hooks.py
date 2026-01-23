@@ -1,9 +1,10 @@
-import asyncio
-from typing import Any, List, AsyncGenerator
+import pytest
+from typing import Any, List, Set, AsyncGenerator
 from justpipe import Pipe, Event, EventType
 
 
-def test_add_event_hook_single() -> None:
+@pytest.mark.asyncio
+async def test_add_event_hook_single() -> None:
     pipe: Pipe[Any, Any] = Pipe()
     events: List[Event] = []
 
@@ -17,11 +18,8 @@ def test_add_event_hook_single() -> None:
     async def test_step() -> None:
         pass
 
-    async def run() -> None:
-        async for _ in pipe.run({}):
-            pass
-
-    asyncio.run(run())
+    async for _ in pipe.run({}):
+        pass
 
     assert len(events) > 0
     event_types = [e.type for e in events]
@@ -29,7 +27,8 @@ def test_add_event_hook_single() -> None:
     assert EventType.FINISH in event_types
 
 
-def test_event_hook_transforms_event() -> None:
+@pytest.mark.asyncio
+async def test_event_hook_transforms_event() -> None:
     pipe: Pipe[Any, Any] = Pipe()
 
     def add_metadata(event: Event) -> Event:
@@ -44,12 +43,8 @@ def test_event_hook_transforms_event() -> None:
 
     collected: List[Event] = []
 
-    async def run() -> List[Event]:
-        async for event in pipe.run({"initial": "state"}):
-            collected.append(event)
-        return collected
-
-    asyncio.run(run())
+    async for event in pipe.run({"initial": "state"}):
+        collected.append(event)
 
     start_event = next(e for e in collected if e.type == EventType.START)
     assert isinstance(start_event.data, dict)
@@ -57,7 +52,8 @@ def test_event_hook_transforms_event() -> None:
     assert start_event.data["original"] == {"initial": "state"}
 
 
-def test_multiple_event_hooks_chained() -> None:
+@pytest.mark.asyncio
+async def test_multiple_event_hooks_chained() -> None:
     pipe: Pipe[Any, Any] = Pipe()
     call_order: List[int] = []
 
@@ -81,20 +77,18 @@ def test_multiple_event_hooks_chained() -> None:
     async def test_step() -> None:
         pass
 
-    async def run() -> None:
-        async for _ in pipe.run({}):
-            pass
-
-    asyncio.run(run())
+    async for _ in pipe.run({}):
+        pass
 
     # Hooks are called in order for each event
     # We should see pattern 1,2,3 repeated for each event
     assert call_order[:3] == [1, 2, 3]
 
 
-def test_event_hook_receives_all_event_types() -> None:
+@pytest.mark.asyncio
+async def test_event_hook_receives_all_event_types() -> None:
     pipe: Pipe[Any, Any] = Pipe()
-    seen_types: set[EventType] = set()
+    seen_types: Set[EventType] = set()
 
     def collect_types(event: Event) -> Event:
         seen_types.add(event.type)
@@ -111,11 +105,8 @@ def test_event_hook_receives_all_event_types() -> None:
         yield "token1"
         yield "token2"
 
-    async def run() -> None:
-        async for _ in pipe.run({}):
-            pass
-
-    asyncio.run(run())
+    async for _ in pipe.run({}):
+        pass
 
     assert EventType.START in seen_types
     assert EventType.STEP_START in seen_types
@@ -124,7 +115,8 @@ def test_event_hook_receives_all_event_types() -> None:
     assert EventType.FINISH in seen_types
 
 
-def test_event_hook_with_error() -> None:
+@pytest.mark.asyncio
+async def test_event_hook_with_error() -> None:
     pipe: Pipe[Any, Any] = Pipe()
     error_events: List[Event] = []
 
@@ -139,11 +131,8 @@ def test_event_hook_with_error() -> None:
     async def fail() -> None:
         raise ValueError("test error")
 
-    async def run() -> None:
-        async for _ in pipe.run({}):
-            pass
-
-    asyncio.run(run())
+    async for _ in pipe.run({}):
+        pass
 
     assert len(error_events) == 1
     assert "test error" in error_events[0].data

@@ -97,3 +97,70 @@ def test_advanced_retry_config() -> None:
         pass
 
     assert "retry" in pipe._steps
+
+
+@pytest.mark.asyncio
+async def test_empty_pipeline() -> None:
+    """Empty pipeline should yield ERROR and FINISH, not crash."""
+    pipe: Pipe[Any, Any] = Pipe()
+    events = [e async for e in pipe.run({})]
+
+    assert len(events) >= 2
+    error_events = [e for e in events if e.type == EventType.ERROR]
+    assert len(error_events) == 1
+    assert "No steps registered" in error_events[0].data
+    assert events[-1].type == EventType.FINISH
+
+
+@pytest.mark.asyncio
+async def test_concurrent_token_streaming() -> None:
+    """Parallel steps should both have their tokens collected."""
+    pipe: Pipe[Any, Any] = Pipe()
+
+    @pipe.step("start", to=["a", "b"])
+    async def start(s: Any) -> None:
+        pass
+
+    @pipe.step("a")
+    async def step_a(s: Any) -> Any:
+        yield "token_from_a"
+
+    @pipe.step("b")
+    async def step_b(s: Any) -> Any:
+        yield "token_from_b"
+
+    events = [e async for e in pipe.run({})]
+
+    token_events = [e for e in events if e.type == EventType.TOKEN]
+    token_data = {e.data for e in token_events}
+
+    assert "token_from_a" in token_data
+    assert "token_from_b" in token_data
+
+
+@pytest.mark.asyncio
+async def test_context_none_handling() -> None:
+    """Steps and hooks should handle context=None gracefully."""
+    pipe: Pipe[Any, Any] = Pipe()
+
+    @pipe.on_startup
+    async def startup(ctx: Any) -> None:
+        # ctx is None, should not crash
+        pass
+
+    @pipe.on_shutdown
+    async def shutdown(ctx: Any) -> None:
+        # ctx is None, should not crash
+        pass
+
+    @pipe.step
+    async def step_with_ctx(s: Any, ctx: Any) -> None:
+        # ctx is None
+        assert ctx is None
+
+    events = [e async for e in pipe.run({}, context=None)]
+
+    assert events[-1].type == EventType.FINISH
+    # No errors
+    error_events = [e for e in events if e.type == EventType.ERROR]
+    assert len(error_events) == 0

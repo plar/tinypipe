@@ -166,46 +166,29 @@ def test_topology_is_copy() -> None:
 
 
 def test_validate_on_run_disabled_by_default() -> None:
-    import asyncio
-
+    # Introspection test, doesn't need to run pipe
     pipe: Pipe[Any, Any] = Pipe()
-
-    @pipe.step("first", to="nonexistent")
-    async def first() -> None:
-        pass
-
-    # Without validate_on_run, the pipe will run without validation
-    # and fail later when trying to find the target
-    async def run() -> None:
-        async for _ in pipe.run({}):
-            pass
-
-    # This should not raise immediately (validation doesn't happen)
-    # The error would come during execution
-    asyncio.run(run())
+    # Accessing private attribute to verify default
+    assert pipe._validate_on_run is False
 
 
-def test_validate_on_run_enabled() -> None:
-    import asyncio
-
+@pytest.mark.asyncio
+async def test_validate_on_run_enabled() -> None:
     pipe: Pipe[Any, Any] = Pipe(validate_on_run=True)
 
     @pipe.step("first", to="nonexistent")
     async def first() -> None:
         pass
 
-    async def run() -> None:
+    # With validate_on_run=True, validation happens before running
+    # We expect ValueError because "nonexistent" target is unknown
+    with pytest.raises(ValueError, match="targets unknown step"):
         async for _ in pipe.run({}):
             pass
 
-    # With validate_on_run=True, validation happens before running
-    with pytest.raises(ValueError, match="targets unknown step"):
-        asyncio.run(run())
 
-
-def test_validate_on_run_valid_pipe() -> None:
-    import asyncio
-
+@pytest.mark.asyncio
+async def test_validate_on_run_valid_pipe() -> None:
     pipe: Pipe[Any, Any] = Pipe(validate_on_run=True)
 
     @pipe.step("first", to="second")
@@ -216,12 +199,8 @@ def test_validate_on_run_valid_pipe() -> None:
     async def second() -> None:
         pass
 
-    async def run() -> list[Any]:
-        events: list[Any] = []
-        async for event in pipe.run({}):
-            events.append(event)
-        return events
+    events: list[Any] = []
+    async for event in pipe.run({}):
+        events.append(event)
 
-    # Should run successfully
-    events = asyncio.run(run())
     assert len(events) > 0

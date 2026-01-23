@@ -1,11 +1,11 @@
-import asyncio
 import pytest
 from unittest.mock import patch
-from typing import Any, Callable, Dict
+from typing import Any, Callable, Dict, List
 from justpipe import Pipe, simple_logging_middleware, StepContext
 
 
-def test_simple_logging_middleware_integration() -> None:
+@pytest.mark.asyncio
+async def test_simple_logging_middleware_integration() -> None:
     pipe: Pipe[Any, Any] = Pipe()
     pipe.add_middleware(simple_logging_middleware)
 
@@ -14,21 +14,19 @@ def test_simple_logging_middleware_integration() -> None:
         pass
 
     with patch("logging.Logger.debug") as mock_debug:
+        async for _ in pipe.run({}):
+            pass
 
-        async def run() -> None:
-            async for _ in pipe.run({}):
-                pass
-
-        asyncio.run(run())
         mock_debug.assert_called()
         # Verify it contains the step name and execution time
         args, _ = mock_debug.call_args
         assert "Step 'test' took" in args[0]
 
 
-def test_middleware_application() -> None:
+@pytest.mark.asyncio
+async def test_middleware_application() -> None:
     pipe: Pipe[Any, Any] = Pipe()
-    log = []
+    log: List[str] = []
 
     def logging_middleware(
         func: Callable[..., Any], ctx: StepContext
@@ -47,17 +45,8 @@ def test_middleware_application() -> None:
     async def test() -> None:
         log.append("exec")
 
-    async def run_one() -> None:
-        await pipe.run({}).__aiter__().__anext__()
-
-    asyncio.run(run_one())  # Run one step
-    # Wait, we need to run the whole pipe properly
-
-    async def run_pipe() -> None:
-        async for _ in pipe.run({}):
-            pass
-
-    asyncio.run(run_pipe())
+    async for _ in pipe.run({}):
+        pass
 
     assert log == ["before", "exec", "after"]
 
@@ -80,14 +69,16 @@ def test_middleware_kwargs_passing() -> None:
     async def test() -> None:
         pass
 
+    # Registration time check, no need for async execution
     assert captured_ctx["name"] == "test"
     assert captured_ctx["kwargs"] == {"foo": "bar", "limit": 10}
     assert captured_ctx["pipe_name"] == "Pipe"
 
 
-def test_middleware_chaining() -> None:
+@pytest.mark.asyncio
+async def test_middleware_chaining() -> None:
     pipe: Pipe[Any, Any] = Pipe()
-    order = []
+    order: List[int] = []
 
     def mw1(func: Callable[..., Any], ctx: StepContext) -> Callable[..., Any]:
         async def w(*a: Any, **k: Any) -> Any:
@@ -110,18 +101,16 @@ def test_middleware_chaining() -> None:
     async def t() -> None:
         order.append(3)
 
-    async def run() -> None:
-        async for _ in pipe.run({}):
-            pass
+    async for _ in pipe.run({}):
+        pass
 
-    asyncio.run(run())
-
-    # Middleware applied in order: mw2(mw1(func)) because of loop order
+    # Middleware applied in order: mw2(mw1(func))
     # Execution: mw2 -> mw1 -> func
     assert order == [2, 1, 3]
 
 
-def test_retry_middleware_integration() -> None:
+@pytest.mark.asyncio
+async def test_retry_middleware_integration() -> None:
     # This tests the default retry middleware
     pipe: Pipe[Any, Any] = Pipe()
     attempts = 0
@@ -133,11 +122,9 @@ def test_retry_middleware_integration() -> None:
         if attempts < 3:
             raise ValueError("fail")
 
-    async def run() -> None:
-        async for _ in pipe.run({}):
-            pass
+    async for _ in pipe.run({}):
+        pass
 
-    asyncio.run(run())
     assert attempts == 3
 
 
@@ -163,14 +150,10 @@ def test_retry_on_async_generator_warning() -> None:
             yield 1
 
 
-def test_retry_with_dict_config() -> None:
+@pytest.mark.asyncio
+async def test_retry_with_dict_config() -> None:
     pipe: Pipe[Any, Any] = Pipe()
     attempts = 0
-
-    # Using a dict config for tenacity
-    # We can pass specific tenacity args here.
-    # To test it without actually depending on tenacity logic details (which might change),
-    # we just ensure it accepts the dict and tries to use it.
 
     @pipe.step("retry_step", retries={"stop": lambda _: False, "reraise": True})
     async def retry_step() -> None:
@@ -179,15 +162,14 @@ def test_retry_with_dict_config() -> None:
         if attempts < 2:
             raise ValueError("fail")
 
-    async def run() -> None:
-        async for _ in pipe.run(None):
-            pass
+    async for _ in pipe.run(None):
+        pass
 
-    asyncio.run(run())
     assert attempts == 2
 
 
-def test_simple_logging_middleware_generator() -> None:
+@pytest.mark.asyncio
+async def test_simple_logging_middleware_generator() -> None:
     pipe: Pipe[Any, Any] = Pipe()
     pipe.add_middleware(simple_logging_middleware)
 
@@ -197,12 +179,9 @@ def test_simple_logging_middleware_generator() -> None:
         yield 2
 
     with patch("logging.Logger.debug") as mock_debug:
+        async for _ in pipe.run({}):
+            pass
 
-        async def run() -> None:
-            async for _ in pipe.run({}):
-                pass
-
-        asyncio.run(run())
         mock_debug.assert_called()
         args, _ = mock_debug.call_args
         assert "Step 'stream' took" in args[0]
