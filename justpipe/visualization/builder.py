@@ -10,18 +10,17 @@ from justpipe.visualization.ast import (
     VisualEdge,
     VisualNode,
 )
-from justpipe.types import StepConfig
+from justpipe.steps import _BaseStep, _MapStep, _SwitchStep, _SubPipelineStep
 
 
-class PipelineASTBuilder:
+class _PipelineASTBuilder:
     """Builds VisualAST from pipeline internals."""
 
     @classmethod
     def build(
         cls,
-        steps: Dict[str, Callable[..., Any]],
+        steps: Dict[str, _BaseStep],
         topology: Dict[str, List[str]],
-        step_configs: Dict[str, StepConfig],
         startup_hooks: Optional[List[Callable[..., Any]]] = None,
         shutdown_hooks: Optional[List[Callable[..., Any]]] = None,
     ) -> VisualAST:
@@ -35,23 +34,24 @@ class PipelineASTBuilder:
         for targets in topology.values():
             all_nodes.update(targets)
 
-        for config in step_configs.values():
-            all_nodes.update(config.get_targets())
+        for step_obj in steps.values():
+            all_nodes.update(step_obj.get_targets())
 
         # Remove special "Stop" marker if present
         all_nodes.discard("Stop")
 
         # Identify streaming nodes
         streaming_nodes = {
-            name for name, func in steps.items() if inspect.isasyncgenfunction(func)
+            name for name, s in steps.items() 
+            if inspect.isasyncgenfunction(s.original_func)
         }
 
         # Calculate all targets (nodes that are destinations)
         all_targets: Set[str] = set()
         for targets in topology.values():
             all_targets.update(targets)
-        for config in step_configs.values():
-            all_targets.update(config.get_targets())
+        for step_obj in steps.values():
+            all_targets.update(step_obj.get_targets())
 
         # Entry points: nodes that are in topology or steps but not targets
         entry_points = set(topology.keys()) - all_targets
@@ -62,14 +62,14 @@ class PipelineASTBuilder:
 
         # Terminal nodes: nodes that have no outgoing edges
         map_targets = {
-            config.map_target
-            for config in step_configs.values()
-            if config.map_target
+            step_obj.map_target
+            for step_obj in steps.values()
+            if isinstance(step_obj, _MapStep)
         }
 
         # Terminal nodes: nodes that have no outgoing edges
         non_terminal = set(topology.keys()) | {
-            n for n, c in step_configs.items() if c.get_targets()
+            n for n, step_obj in steps.items() if step_obj.get_targets()
         }
         terminal_nodes = all_nodes - non_terminal
 
@@ -82,8 +82,10 @@ class PipelineASTBuilder:
         # Build VisualNodes
         nodes: Dict[str, VisualNode] = {}
         for name in all_nodes:
+            step: Optional[_BaseStep] = steps.get(name)
+            
             # Determine kind
-            kind_str = step_configs[name].get_kind() if name in step_configs else "step"
+            kind_str = step.get_kind() if step else "step"
             
             if kind_str == "switch":
                 kind = NodeKind.SWITCH
@@ -97,22 +99,21 @@ class PipelineASTBuilder:
                 kind = NodeKind.STEP
 
             sub_graph = None
-            if kind == NodeKind.SUB:
-                cfg = step_configs.get(name)
-                sub_pipe = cfg.sub_pipeline_obj if cfg else None
+            if isinstance(step, _SubPipelineStep):
+                sub_pipe = step.sub_pipeline_obj
                 if sub_pipe:
                     # Recursive call to builder
+                    # Accessing protected members of subpipe.
+                    # Assuming subpipe is a Pipe instance which has these protected members
+                    # or we access via its registry.
+                    # To avoid deep coupling, we assume sub_pipe object has '_steps' etc.
+                    # But Pipe._steps calls registry.steps which is now BaseStep dict.
                     sub_graph = cls.build(
                         sub_pipe._steps,
                         sub_pipe._topology,
-                        sub_pipe._step_configs,
                     )
             
-            # Reconstruct metadata for backward compatibility of visualization model
             node_metadata: Dict[str, Any] = {}
-            if name in step_configs:
-                # We can populate it if needed by visualization renderer
-                pass
 
             nodes[name] = VisualNode(
                 id=safe_ids[name],
@@ -135,21 +136,20 @@ class PipelineASTBuilder:
                 edges.append(VisualEdge(source=src, target=target))
 
         # Map and switch edges from metadata
-        for src, config in step_configs.items():
-            if config.map_target:
-                target = config.map_target
+        for src, step_obj in steps.items():
+            if isinstance(step_obj, _MapStep):
+                target = step_obj.map_target
                 edges.append(VisualEdge(source=src, target=target, is_map_edge=True))
 
-            if config.switch_routes:
-                routes = config.switch_routes
-                if isinstance(routes, dict):
-                    for val, target in routes.items():
+            if isinstance(step_obj, _SwitchStep):
+                if isinstance(step_obj.routes, dict):
+                    for val, target in step_obj.routes.items():
                         if target != "Stop":
                             edges.append(
                                 VisualEdge(source=src, target=target, label=str(val))
                             )
 
-                default = config.switch_default
+                default = step_obj.default
                 if default:
                     edges.append(
                         VisualEdge(source=src, target=default, label="default")

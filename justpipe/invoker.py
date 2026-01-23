@@ -10,8 +10,8 @@ from justpipe.types import (
     _Next,
     _Run,
     Suspend,
-    StepConfig,
 )
+from justpipe.steps import _BaseStep
 
 StateT = TypeVar("StateT")
 ContextT = TypeVar("ContextT")
@@ -30,14 +30,12 @@ class _StepInvoker(Generic[StateT, ContextT]):
 
     def __init__(
         self,
-        steps: Dict[str, Callable[..., Any]],
+        steps: Dict[str, _BaseStep],
         injection_metadata: Dict[str, Dict[str, str]],
-        step_configs: Dict[str, StepConfig],
         on_error: Optional[Callable[..., Any]] = None,
     ):
         self._steps = steps
         self._injection_metadata = injection_metadata
-        self._step_configs = step_configs
         self._on_error = on_error
         self._state: Optional[StateT] = None
         self._context: Optional[ContextT] = None
@@ -74,28 +72,32 @@ class _StepInvoker(Generic[StateT, ContextT]):
         payload: Optional[Dict[str, Any]] = None,
     ) -> Any:
         """Execute a single step, handling parameter injection and timeouts."""
-        func = self._steps.get(name)
-        if not func:
+        step = self._steps.get(name)
+        if not step:
             raise ValueError(f"Step not found: {name}")
 
-        config = self._step_configs.get(name)
-        timeout = config.timeout if config else None
+        timeout = step.timeout
 
         # Resolve dependencies
         kwargs = (payload or {}).copy()
         kwargs.update(self._resolve_injections(name))
 
         async def _exec() -> Any:
-            if inspect.isasyncgenfunction(func):
+            # We await execute() which calls the middleware-wrapped function.
+            # If the underlying function is a generator, execute() returns the generator object.
+            # If it's a regular function, it returns the result.
+            result = await step.execute(**kwargs)
+            
+            if inspect.isasyncgen(result):
                 last_val = None
-                async for item in func(**kwargs):
+                async for item in result:
                     if isinstance(item, (_Next, _Map, _Run, Suspend)):
                         last_val = item
                     else:
                         await queue.put(Event(EventType.TOKEN, name, item))
                 return last_val
             else:
-                return await func(**kwargs)
+                return result
 
         if timeout:
             try:

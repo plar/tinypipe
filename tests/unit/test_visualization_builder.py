@@ -1,17 +1,17 @@
-"""Unit tests for PipelineASTBuilder."""
+"""Unit tests for _PipelineASTBuilder."""
 
 from typing import Any, Dict, List
 
 from justpipe.visualization import (
     NodeKind,
-    PipelineASTBuilder,
+    _PipelineASTBuilder,
 )
-from justpipe.types import StepConfig
+from justpipe.steps import _BaseStep, _StandardStep, _MapStep, _SwitchStep
 
 
 def test_ast_from_empty_pipe() -> None:
     """Test building AST from empty pipe."""
-    ast = PipelineASTBuilder.build({}, {}, {})
+    ast = _PipelineASTBuilder.build({}, {})
     assert not ast.nodes
     assert not ast.edges
     assert not ast.parallel_groups
@@ -23,13 +23,12 @@ def test_ast_from_single_step() -> None:
     async def step_a(s: Any) -> None:
         pass
 
-    steps = {"a": step_a}
-    topology: Dict[str, List[str]] = {}
-    step_configs: Dict[str, StepConfig] = {
-        "a": StepConfig(name="a", func=step_a)
+    steps: Dict[str, _BaseStep] = {
+        "a": _StandardStep(name="a", func=step_a)
     }
+    topology: Dict[str, List[str]] = {}
 
-    ast = PipelineASTBuilder.build(steps, topology, step_configs)
+    ast = _PipelineASTBuilder.build(steps, topology)
     assert len(ast.nodes) == 1
     node = ast.nodes["a"]
     assert node.name == "a"
@@ -48,14 +47,13 @@ def test_ast_from_linear_pipe() -> None:
     async def step_b(s: Any) -> None:
         pass
 
-    steps = {"a": step_a, "b": step_b}
-    topology = {"a": ["b"]}
-    step_configs: Dict[str, StepConfig] = {
-        "a": StepConfig(name="a", func=step_a),
-        "b": StepConfig(name="b", func=step_b)
+    steps: Dict[str, _BaseStep] = {
+        "a": _StandardStep(name="a", func=step_a, to=["b"]),
+        "b": _StandardStep(name="b", func=step_b)
     }
+    topology = {"a": ["b"]}
 
-    ast = PipelineASTBuilder.build(steps, topology, step_configs)
+    ast = _PipelineASTBuilder.build(steps, topology)
     assert len(ast.nodes) == 2
     assert len(ast.edges) == 1
 
@@ -81,14 +79,13 @@ def test_ast_streaming_node() -> None:
     async def streaming(s: Any) -> Any:
         yield 1
 
-    steps = {"regular": regular, "streaming": streaming}
-    topology = {"regular": ["streaming"]}
-    step_configs: Dict[str, StepConfig] = {
-        "regular": StepConfig(name="regular", func=regular),
-        "streaming": StepConfig(name="streaming", func=streaming)
+    steps: Dict[str, _BaseStep] = {
+        "regular": _StandardStep(name="regular", func=regular, to=["streaming"]),
+        "streaming": _StandardStep(name="streaming", func=streaming)
     }
+    topology = {"regular": ["streaming"]}
 
-    ast = PipelineASTBuilder.build(steps, topology, step_configs)
+    ast = _PipelineASTBuilder.build(steps, topology)
     assert ast.nodes["streaming"].kind == NodeKind.STREAMING
     assert ast.nodes["regular"].kind == NodeKind.STEP
 
@@ -105,15 +102,14 @@ def test_ast_parallel_group() -> None:
     async def step_c(s: Any) -> None:
         pass
 
-    steps = {"a": step_a, "b": step_b, "c": step_c}
-    topology = {"a": ["b", "c"]}
-    step_configs: Dict[str, StepConfig] = {
-        "a": StepConfig(name="a", func=step_a),
-        "b": StepConfig(name="b", func=step_b),
-        "c": StepConfig(name="c", func=step_c)
+    steps: Dict[str, _BaseStep] = {
+        "a": _StandardStep(name="a", func=step_a, to=["b", "c"]),
+        "b": _StandardStep(name="b", func=step_b),
+        "c": _StandardStep(name="c", func=step_c)
     }
+    topology = {"a": ["b", "c"]}
 
-    ast = PipelineASTBuilder.build(steps, topology, step_configs)
+    ast = _PipelineASTBuilder.build(steps, topology)
     assert len(ast.parallel_groups) == 1
     group = ast.parallel_groups[0]
     assert group.source_id == "a"
@@ -129,14 +125,13 @@ def test_ast_map_metadata() -> None:
     async def worker(item: Any) -> None:
         pass
 
-    steps = {"mapper": mapper, "worker": worker}
-    topology: Dict[str, List[str]] = {}
-    step_configs: Dict[str, StepConfig] = {
-        "mapper": StepConfig(name="mapper", func=mapper, map_target="worker"),
-        "worker": StepConfig(name="worker", func=worker)
+    steps: Dict[str, _BaseStep] = {
+        "mapper": _MapStep(name="mapper", func=mapper, map_target="worker"),
+        "worker": _StandardStep(name="worker", func=worker)
     }
+    topology: Dict[str, List[str]] = {}
 
-    ast = PipelineASTBuilder.build(steps, topology, step_configs)
+    ast = _PipelineASTBuilder.build(steps, topology)
     assert ast.nodes["mapper"].kind == NodeKind.MAP
     assert ast.nodes["worker"].is_map_target
     assert len(ast.edges) == 1
@@ -155,19 +150,18 @@ def test_ast_switch_metadata() -> None:
     async def handler_b(s: Any) -> None:
         pass
 
-    steps = {"router": router, "handler_a": handler_a, "handler_b": handler_b}
-    topology: Dict[str, List[str]] = {}
-    step_configs: Dict[str, StepConfig] = {
-        "router": StepConfig(
+    steps: Dict[str, _BaseStep] = {
+        "router": _SwitchStep(
             name="router", 
             func=router,
-            switch_routes={"yes": "handler_a", "no": "handler_b"}
+            routes={"yes": "handler_a", "no": "handler_b"}
         ),
-        "handler_a": StepConfig(name="handler_a", func=handler_a),
-        "handler_b": StepConfig(name="handler_b", func=handler_b)
+        "handler_a": _StandardStep(name="handler_a", func=handler_a),
+        "handler_b": _StandardStep(name="handler_b", func=handler_b)
     }
+    topology: Dict[str, List[str]] = {}
 
-    ast = PipelineASTBuilder.build(steps, topology, step_configs)
+    ast = _PipelineASTBuilder.build(steps, topology)
     assert ast.nodes["router"].kind == NodeKind.SWITCH
     assert len(ast.edges) == 2
     labels = {e.label for e in ast.edges}
@@ -186,20 +180,19 @@ def test_ast_switch_with_default() -> None:
     async def fallback(s: Any) -> None:
         pass
 
-    steps = {"router": router, "handler": handler, "fallback": fallback}
-    topology: Dict[str, List[str]] = {}
-    step_configs: Dict[str, StepConfig] = {
-        "router": StepConfig(
+    steps: Dict[str, _BaseStep] = {
+        "router": _SwitchStep(
             name="router",
             func=router,
-            switch_routes={"yes": "handler"},
-            switch_default="fallback"
+            routes={"yes": "handler"},
+            default="fallback"
         ),
-        "handler": StepConfig(name="handler", func=handler),
-        "fallback": StepConfig(name="fallback", func=fallback)
+        "handler": _StandardStep(name="handler", func=handler),
+        "fallback": _StandardStep(name="fallback", func=fallback)
     }
+    topology: Dict[str, List[str]] = {}
 
-    ast = PipelineASTBuilder.build(steps, topology, step_configs)
+    ast = _PipelineASTBuilder.build(steps, topology)
     assert len(ast.edges) == 2
     labels = {e.label for e in ast.edges}
     assert labels == {"yes", "default"}
@@ -217,15 +210,14 @@ def test_ast_isolated_node() -> None:
     async def leaf(s: Any) -> None:
         pass
 
-    steps = {"main": main, "orphan": orphan, "leaf": leaf}
-    topology = {"main": ["leaf"]}
-    step_configs: Dict[str, StepConfig] = {
-        "main": StepConfig(name="main", func=main),
-        "orphan": StepConfig(name="orphan", func=orphan),
-        "leaf": StepConfig(name="leaf", func=leaf)
+    steps: Dict[str, _BaseStep] = {
+        "main": _StandardStep(name="main", func=main, to=["leaf"]),
+        "orphan": _StandardStep(name="orphan", func=orphan),
+        "leaf": _StandardStep(name="leaf", func=leaf)
     }
+    topology = {"main": ["leaf"]}
 
-    ast = PipelineASTBuilder.build(steps, topology, step_configs)
+    ast = _PipelineASTBuilder.build(steps, topology)
     assert ast.nodes["orphan"].is_isolated
     assert not ast.nodes["main"].is_isolated
     assert not ast.nodes["leaf"].is_isolated

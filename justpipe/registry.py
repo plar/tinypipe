@@ -7,25 +7,26 @@ from typing import (
     Union,
     Iterator,
 )
-import inspect
 
 from justpipe.middleware import Middleware, tenacity_retry_middleware
 from justpipe.types import (
     Event,
-    Stop,
-    StepContext,
     StepInfo,
     StepConfig,
-    _Map,
-    _Next,
     _resolve_name,
-    _Run,
     _Stop,
+)
+from justpipe.steps import (
+    _BaseStep,
+    _StandardStep,
+    _MapStep,
+    _SwitchStep,
+    _SubPipelineStep,
 )
 from justpipe.utils import _analyze_signature
 from justpipe.graph import _validate_routing_target
 
-class PipelineRegistry:
+class _PipelineRegistry:
     def __init__(
         self,
         pipe_name: str = "Pipe",
@@ -40,14 +41,19 @@ class PipelineRegistry:
         self.state_type = state_type
         self.context_type = context_type
         
-        self.steps: Dict[str, Callable[..., Any]] = {}
+        # Maps step name to the executable _BaseStep object
+        self.steps: Dict[str, _BaseStep] = {}
         self.topology: Dict[str, List[str]] = {}
         self.startup_hooks: List[Callable[..., Any]] = []
         self.shutdown_hooks: List[Callable[..., Any]] = []
         self.on_error_handler: Optional[Callable[..., Any]] = None
         self.injection_metadata: Dict[str, Dict[str, str]] = {}
-        self.step_configs: Dict[str, StepConfig] = {}
         self.event_hooks: List[Callable[[Event], Event]] = []
+
+    @property
+    def step_configs(self) -> Dict[str, StepConfig]:
+        """Backward compatibility property returning StepConfig objects."""
+        return {name: step.to_config() for name, step in self.steps.items()}
 
     def add_middleware(self, mw: Middleware) -> None:
         self.middleware.append(mw)
@@ -70,46 +76,23 @@ class PipelineRegistry:
         )
         return func
 
-    def _register_step_config(
+    def _register_step(
         self,
-        name_or_func: Union[str, Callable[..., Any]],
-        func: Callable[..., Any],
+        step_obj: _BaseStep,
         to: Union[
             str, List[str], Callable[..., Any], List[Callable[..., Any]], None
         ] = None,
-        barrier_timeout: Optional[float] = None,
         on_error: Optional[Callable[..., Any]] = None,
         expected_unknowns: int = 1,
-        **kwargs: Any,
     ) -> str:
-        stage_name = _resolve_name(name_or_func)
-        
-        # Extract known StepConfig fields from kwargs
-        timeout = kwargs.pop("timeout", None)
-        retries = kwargs.pop("retries", 0)
-        map_target = kwargs.pop("map_target", None)
-        switch_routes = kwargs.pop("switch_routes", None)
-        switch_default = kwargs.pop("switch_default", None)
-        sub_pipeline = kwargs.pop("sub_pipeline", None)
-        sub_pipeline_obj = kwargs.pop("sub_pipeline_obj", None)
+        stage_name = step_obj.name
+        self.steps[stage_name] = step_obj
 
-        self.step_configs[stage_name] = StepConfig(
-            name=stage_name,
-            func=func,
-            timeout=timeout,
-            retries=retries,
-            barrier_timeout=barrier_timeout,
-            on_error=on_error,
-            map_target=map_target,
-            switch_routes=switch_routes,
-            switch_default=switch_default,
-            sub_pipeline=sub_pipeline,
-            sub_pipeline_obj=sub_pipeline_obj,
-            extra=kwargs,
-        )
+        # Apply middleware immediately
+        step_obj.wrap_middleware(self.middleware)
 
         self.injection_metadata[stage_name] = _analyze_signature(
-            func,
+            step_obj.original_func,
             self.state_type,
             self.context_type,
             expected_unknowns=expected_unknowns,
@@ -128,21 +111,6 @@ class PipelineRegistry:
 
         return stage_name
 
-    def _wrap_step(
-        self, stage_name: str, func: Callable[..., Any], kwargs: Dict[str, Any]
-    ) -> None:
-        wrapped = func
-        config = self.step_configs.get(stage_name)
-        ctx = StepContext(
-            name=stage_name, 
-            kwargs=kwargs, 
-            pipe_name=self.pipe_name,
-            config=config
-        )
-        for mw in self.middleware:
-            wrapped = mw(wrapped, ctx)
-        self.steps[stage_name] = wrapped
-
     def step(
         self,
         name: Union[str, Callable[..., Any], None] = None,
@@ -154,10 +122,25 @@ class PipelineRegistry:
         **kwargs: Any,
     ) -> Callable[..., Any]:
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
-            stage_name = self._register_step_config(
-                name or func, func, to, barrier_timeout, on_error, **kwargs
+            stage_name = _resolve_name(name or func)
+            
+            # Extract generic step kwargs
+            timeout = kwargs.pop("timeout", None)
+            retries = kwargs.pop("retries", 0)
+            
+            step_obj = _StandardStep(
+                name=stage_name,
+                func=func,
+                to=[_resolve_name(t) for t in (to if isinstance(to, list) else [to])] if to else None,
+                timeout=timeout,
+                retries=retries,
+                barrier_timeout=barrier_timeout,
+                on_error=on_error,
+                pipe_name=self.pipe_name,
+                extra=kwargs
             )
-            self._wrap_step(stage_name, func, kwargs)
+            
+            self._register_step(step_obj, to, on_error)
             return func
 
         if callable(name) and to is None and not kwargs:
@@ -181,33 +164,26 @@ class PipelineRegistry:
         _validate_routing_target(using)
 
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+            stage_name = _resolve_name(name or func)
             target_name = _resolve_name(using)
-            stage_name = self._register_step_config(
-                name or func,
-                func,
-                to,
-                barrier_timeout,
-                on_error,
+            
+            timeout = kwargs.pop("timeout", None)
+            retries = kwargs.pop("retries", 0)
+
+            step_obj = _MapStep(
+                name=stage_name,
+                func=func,
                 map_target=target_name,
-                **kwargs,
+                to=[_resolve_name(t) for t in (to if isinstance(to, list) else [to])] if to else None,
+                timeout=timeout,
+                retries=retries,
+                barrier_timeout=barrier_timeout,
+                on_error=on_error,
+                pipe_name=self.pipe_name,
+                extra=kwargs
             )
 
-            async def map_wrapper(**inner_kwargs: Any) -> _Map:
-                if inspect.isasyncgenfunction(func):
-                    items = [item async for item in func(**inner_kwargs)]
-                    return _Map(items=items, target=target_name)
-
-                result = await func(**inner_kwargs)
-                try:
-                    items = list(result)
-                except TypeError:
-                    raise ValueError(
-                        f"Step '{stage_name}' decorated with @pipe.map "
-                        f"must return an iterable, got {type(result)}"
-                    )
-                return _Map(items=items, target=target_name)
-
-            self._wrap_step(stage_name, map_wrapper, kwargs)
+            self._register_step(step_obj, to, on_error)
             return func
 
         return decorator
@@ -240,43 +216,32 @@ class PipelineRegistry:
             _validate_routing_target(default)
 
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+            stage_name = _resolve_name(name or func)
+            
             normalized_routes = {}
             if isinstance(routes, dict):
                 for key, target in routes.items():
                     normalized_routes[key] = (
                         "Stop" if isinstance(target, _Stop) else _resolve_name(target)
                     )
+            
+            timeout = kwargs.pop("timeout", None)
+            retries = kwargs.pop("retries", 0)
 
-            stage_name = self._register_step_config(
-                name or func,
-                func,
-                None,
-                barrier_timeout,
-                on_error,
-                switch_routes=normalized_routes
-                if isinstance(routes, dict)
-                else "dynamic",
-                switch_default=_resolve_name(default) if default else None,
-                **kwargs,
+            step_obj = _SwitchStep(
+                name=stage_name,
+                func=func,
+                routes=normalized_routes if isinstance(routes, dict) else routes,
+                default=_resolve_name(default) if default else None,
+                timeout=timeout,
+                retries=retries,
+                barrier_timeout=barrier_timeout,
+                on_error=on_error,
+                pipe_name=self.pipe_name,
+                extra=kwargs
             )
 
-            async def switch_wrapper(**inner_kwargs: Any) -> Any:
-                result = await func(**inner_kwargs)
-                target = (
-                    routes.get(result, default)
-                    if isinstance(routes, dict)
-                    else routes(result)
-                )
-
-                if target is None:
-                    raise ValueError(
-                        f"Step '{stage_name}' (switch) returned {result}, "
-                        f"which matches no route and no default was provided."
-                    )
-
-                return Stop if isinstance(target, _Stop) else _Next(target)
-
-            self._wrap_step(stage_name, switch_wrapper, kwargs)
+            self._register_step(step_obj, None, on_error)
             return func
 
         return decorator
@@ -298,38 +263,67 @@ class PipelineRegistry:
         _validate_routing_target(using)
 
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
-            stage_name = self._register_step_config(
-                name or func,
-                func,
-                to,
-                barrier_timeout,
-                on_error,
-                sub_pipeline=using.name if hasattr(using, "name") else "SubPipe",
+            stage_name = _resolve_name(name or func)
+            
+            timeout = kwargs.pop("timeout", None)
+            retries = kwargs.pop("retries", 0)
+
+            step_obj = _SubPipelineStep(
+                name=stage_name,
+                func=func,
+                sub_pipeline_name=using.name if hasattr(using, "name") else "SubPipe",
                 sub_pipeline_obj=using,
-                **kwargs,
+                to=[_resolve_name(t) for t in (to if isinstance(to, list) else [to])] if to else None,
+                timeout=timeout,
+                retries=retries,
+                barrier_timeout=barrier_timeout,
+                on_error=on_error,
+                pipe_name=self.pipe_name,
+                extra=kwargs
             )
 
-            async def sub_wrapper(**inner_kwargs: Any) -> _Run:
-                result = await func(**inner_kwargs)
-                return _Run(pipe=using, state=result)
-
-            self._wrap_step(stage_name, sub_wrapper, kwargs)
+            self._register_step(step_obj, to, on_error)
             return func
 
         return decorator
 
     def get_steps_info(self) -> Iterator[StepInfo]:
         """Iterate over registered steps with their configuration."""
-        for name, config in self.step_configs.items():
+        for name, step in self.steps.items():
             targets = list(self.topology.get(name, []))
-            targets.extend(config.get_targets())
+            targets.extend(step.get_targets())
+            
+            # Use set to dedup targets that might be in both topology and step internal config
+            # (though normally StandardStep separates them, but get_targets for StandardStep returns self.to)
+            # Actually topology dict is the primary source for StandardStep in the current implementation,
+            # but StandardStep.get_targets() returns self.to which is initialized from 'to'.
+            
+            # Wait, in _register_step I add 'to' to self.topology. 
+            # StandardStep also stores it. Duplicate?
+            # self.topology stores explicit routing.
+            # step.get_targets() stores targets inherent to the step logic (map target, switch routes).
+            # StandardStep: get_targets() returns self.to.
+            
+            # If I put 'to' in self.topology AND in step.to, I have duplication.
+            # But the graph builder looks at topology AND step_configs.get_targets().
+            # I should align this.
+            
+            # Current Registry behavior:
+            # 1. Stores 'to' in self.topology.
+            # 2. Config doesn't store 'to'.
+            # New behavior:
+            # 1. Stores 'to' in self.topology.
+            # 2. StandardStep stores 'to' in self.to.
+            
+            # Let's just yield unique targets.
+            unique_targets = sorted(list(set(targets)))
 
             yield StepInfo(
                 name=name,
-                timeout=config.timeout,
-                retries=config.retries if isinstance(config.retries, int) else 0,
-                barrier_timeout=config.barrier_timeout,
-                has_error_handler=config.on_error is not None,
-                targets=targets,
-                kind=config.get_kind(),
+                timeout=step.timeout,
+                retries=step.retries if isinstance(step.retries, int) else 0,
+                barrier_timeout=step.barrier_timeout,
+                has_error_handler=step.on_error is not None,
+                targets=unique_targets,
+                kind=step.get_kind(),
             )

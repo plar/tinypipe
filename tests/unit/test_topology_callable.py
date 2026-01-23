@@ -2,6 +2,7 @@ import pytest
 from typing import Any
 from justpipe import Pipe, Stop
 from justpipe.types import _resolve_name
+from justpipe.steps import _StandardStep
 
 
 def global_step_a(state: Any) -> None:
@@ -46,7 +47,7 @@ def test_pipe_step_list_callable_routing() -> None:
         pass
 
     # Manually register step_c since it wasn't decorated
-    pipe._steps["step_c"] = step_c
+    pipe._steps["step_c"] = _StandardStep(name="step_c", func=step_c)
 
     assert "step_a" in pipe._topology
     assert "step_b" in pipe._topology["step_a"]
@@ -150,8 +151,8 @@ def test_pipe_validation_unreachable_cycle() -> None:
     # A cycle with no entry point
     pipe._topology["a"] = ["b"]
     pipe._topology["b"] = ["a"]
-    pipe._steps["a"] = lambda s: None
-    pipe._steps["b"] = lambda s: None
+    pipe._steps["a"] = _StandardStep(name="a", func=lambda s: None)
+    pipe._steps["b"] = _StandardStep(name="b", func=lambda s: None)
 
     with pytest.raises(ValueError, match="no entry points found"):
         pipe.validate()

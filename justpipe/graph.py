@@ -1,8 +1,15 @@
 from collections import defaultdict
-from typing import Any, Callable, Dict, List, Optional, Set, Union
+from dataclasses import dataclass, field
+from typing import Any, Callable, Dict, List, Set, Union, Tuple
 
-from justpipe.types import Stop, _resolve_name, StepConfig
+from justpipe.types import Stop, _resolve_name
+from justpipe.steps import _BaseStep, _MapStep, _SwitchStep
 
+@dataclass
+class TransitionResult:
+    steps_to_start: List[str] = field(default_factory=list)
+    barriers_to_schedule: List[Tuple[str, float]] = field(default_factory=list)
+    barriers_to_cancel: List[str] = field(default_factory=list)
 
 def _validate_routing_target(target: Any) -> None:
     """Validate that a routing target is a valid name or callable."""
@@ -22,13 +29,11 @@ class _DependencyGraph:
 
     def __init__(
         self,
-        steps: Dict[str, Callable[..., Any]],
+        steps: Dict[str, _BaseStep],
         topology: Dict[str, List[str]],
-        step_configs: Dict[str, StepConfig],
     ):
         self._steps = steps
         self._topology = topology
-        self._step_configs = step_configs
         self._parents_map: Dict[str, Set[str]] = defaultdict(set)
         self._completed_parents: Dict[str, Set[str]] = defaultdict(set)
 
@@ -48,8 +53,8 @@ class _DependencyGraph:
             all_targets = {
                 t for step_targets in self._topology.values() for t in step_targets
             }
-            for config in self._step_configs.values():
-                all_targets.update(config.get_targets())
+            for step in self._steps.values():
+                all_targets.update(step.get_targets())
 
             roots = set(self._steps.keys()) - all_targets
             if not roots:
@@ -60,26 +65,37 @@ class _DependencyGraph:
     def get_successors(self, node: str) -> List[str]:
         return self._topology.get(node, [])
 
-    def mark_completed(
-        self, owner: str, succ: str
-    ) -> tuple[bool, bool, Optional[float]]:
+    def transition(self, completed_node: str) -> TransitionResult:
         """
-        Mark a dependency as satisfied.
-        Returns: (is_ready, cancel_timeout, schedule_timeout)
+        Process the completion of a node and determine next actions.
         """
-        is_first = len(self._completed_parents[succ]) == 0
-        self._completed_parents[succ].add(owner)
-        parents_needed = self._parents_map[succ]
-
-        is_ready = self._completed_parents[succ] >= parents_needed
-        cancel_timeout = is_ready
+        result = TransitionResult()
         
-        schedule_timeout = None
-        if not is_ready and is_first and len(parents_needed) > 1:
-            config = self._step_configs.get(succ)
-            schedule_timeout = config.barrier_timeout if config else None
+        for succ in self.get_successors(completed_node):
+            is_first = len(self._completed_parents[succ]) == 0
+            self._completed_parents[succ].add(completed_node)
+            parents_needed = self._parents_map[succ]
 
-        return is_ready, cancel_timeout, schedule_timeout
+            is_ready = self._completed_parents[succ] >= parents_needed
+            
+            if is_ready:
+                # If ready, we can start the step.
+                # Also if we were waiting for a barrier, we should cancel it.
+                # Note: Only cancel if it was potentially scheduled (parents > 1).
+                if len(parents_needed) > 1:
+                    result.barriers_to_cancel.append(succ)
+                result.steps_to_start.append(succ)
+            else:
+                # Not ready yet.
+                # If this is the first parent arriving and we have multiple parents,
+                # we might need to schedule a barrier timeout.
+                if is_first and len(parents_needed) > 1:
+                    step = self._steps.get(succ)
+                    timeout = step.barrier_timeout if step else None
+                    if timeout:
+                        result.barriers_to_schedule.append((succ, timeout))
+                        
+        return result
 
     def is_barrier_satisfied(self, node: str) -> bool:
         return self._completed_parents[node] >= self._parents_map[node]
@@ -104,8 +120,8 @@ class _DependencyGraph:
                 referenced_names.add(child)
 
         # 2. Check special metadata (map_target, switch_routes)
-        for step_name, config in self._step_configs.items():
-            targets = config.get_targets()
+        for step_name, step in self._steps.items():
+            targets = step.get_targets()
             unknowns = [t for t in targets if t not in all_step_names]
 
             if not unknowns:
@@ -113,22 +129,23 @@ class _DependencyGraph:
                 continue
 
             # Detailed error reporting for unknowns
-            if config.map_target in unknowns:
+            if isinstance(step, _MapStep) and step.map_target in unknowns:
                 raise ValueError(
-                    f"Step '{step_name}' (map) targets unknown step '{config.map_target}'"
+                    f"Step '{step_name}' (map) targets unknown step '{step.map_target}'"
                 )
 
-            if config.switch_default in unknowns:
-                raise ValueError(
-                    f"Step '{step_name}' (switch) has unknown default route '{config.switch_default}'"
-                )
+            if isinstance(step, _SwitchStep):
+                if step.default in unknowns:
+                    raise ValueError(
+                        f"Step '{step_name}' (switch) has unknown default route '{step.default}'"
+                    )
 
-            if config.switch_routes and isinstance(config.switch_routes, dict):
-                for route_name in config.switch_routes.values():
-                    if isinstance(route_name, str) and route_name in unknowns:
-                        raise ValueError(
-                            f"Step '{step_name}' (switch) routes to unknown step '{route_name}'"
-                        )
+                if step.routes and isinstance(step.routes, dict):
+                    for route_name in step.routes.values():
+                        if isinstance(route_name, str) and route_name in unknowns:
+                            raise ValueError(
+                                f"Step '{step_name}' (switch) routes to unknown step '{route_name}'"
+                            )
 
         # 3. Detect roots (entry points)
         roots = all_step_names - referenced_names
@@ -146,9 +163,9 @@ class _DependencyGraph:
             path.add(node)
 
             targets = self._topology.get(node, []).copy()
-            config = self._step_configs.get(node)
-            if config:
-                targets.extend(config.get_targets())
+            step = self._steps.get(node)
+            if step:
+                targets.extend(step.get_targets())
 
             for target in targets:
                 if target in path:

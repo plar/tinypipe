@@ -14,7 +14,8 @@ from typing import (
 
 from justpipe.middleware import Middleware
 from justpipe.runner import _PipelineRunner
-from justpipe.registry import PipelineRegistry
+from justpipe.registry import _PipelineRegistry
+from justpipe.steps import _BaseStep
 from justpipe.types import (
     Event,
     StepInfo,
@@ -41,7 +42,7 @@ class Pipe(Generic[StateT, ContextT]):
         
         # Determine types for registry
         state_type, context_type = self._get_types()
-        self.registry = PipelineRegistry(
+        self.registry = _PipelineRegistry(
             pipe_name=name,
             middleware=middleware,
             state_type=state_type,
@@ -58,7 +59,8 @@ class Pipe(Generic[StateT, ContextT]):
 
     # Properties for backward compatibility and internal access
     @property
-    def _steps(self) -> Dict[str, Callable[..., Any]]:
+    def _steps(self) -> Dict[str, _BaseStep]:
+        # Registry stores BaseStep objects now.
         return self.registry.steps
 
     @property
@@ -194,7 +196,6 @@ class Pipe(Generic[StateT, ContextT]):
         return generate_mermaid_graph(
             self.registry.steps,
             self.registry.topology,
-            self.registry.step_configs,
             startup_hooks=self.registry.startup_hooks,
             shutdown_hooks=self.registry.shutdown_hooks,
         )
@@ -218,8 +219,7 @@ class Pipe(Generic[StateT, ContextT]):
 
         graph = _DependencyGraph(
             self.registry.steps,
-            self.registry.topology,
-            self.registry.step_configs
+            self.registry.topology
         )
         graph.validate()
 
@@ -236,7 +236,6 @@ class Pipe(Generic[StateT, ContextT]):
             self.registry.steps,
             self.registry.topology,
             self.registry.injection_metadata,
-            self.registry.step_configs,
             self.registry.startup_hooks,
             self.registry.shutdown_hooks,
             on_error=self.registry.on_error_handler,

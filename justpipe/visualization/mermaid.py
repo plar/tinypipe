@@ -66,7 +66,7 @@ class MermaidTheme:
         ]
 
 
-class MermaidRenderer:
+class _MermaidRenderer:
     """Renders VisualAST to Mermaid.js string."""
 
     def __init__(self, ast: VisualAST, theme: Optional[MermaidTheme] = None):

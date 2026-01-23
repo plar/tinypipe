@@ -15,6 +15,7 @@ from typing import (
 
 from justpipe.graph import _DependencyGraph
 from justpipe.invoker import _StepInvoker, _StepResult
+from justpipe.handlers import _FailureHandler
 from justpipe.types import (
     Event,
     EventType,
@@ -26,8 +27,8 @@ from justpipe.types import (
     _Map,
     _Next,
     _Run,
-    StepConfig,
 )
+from justpipe.steps import _BaseStep
 
 StateT = TypeVar("StateT")
 ContextT = TypeVar("ContextT")
@@ -38,10 +39,9 @@ class _PipelineRunner(Generic[StateT, ContextT]):
 
     def __init__(
         self,
-        steps: Dict[str, Callable[..., Any]],
+        steps: Dict[str, _BaseStep],
         topology: Dict[str, List[str]],
         injection_metadata: Dict[str, Dict[str, str]],
-        step_configs: Dict[str, StepConfig],
         startup_hooks: List[Callable[..., Any]],
         shutdown_hooks: List[Callable[..., Any]],
         on_error: Optional[Callable[..., Any]] = None,
@@ -50,7 +50,6 @@ class _PipelineRunner(Generic[StateT, ContextT]):
     ):
         self._steps = steps
         self._topology = topology
-        self._step_configs = step_configs
         self._startup = startup_hooks
         self._shutdown = shutdown_hooks
         self._event_hooks = event_hooks or []
@@ -71,9 +70,10 @@ class _PipelineRunner(Generic[StateT, ContextT]):
 
         # Components
         self._invoker: _StepInvoker[StateT, ContextT] = _StepInvoker(
-            steps, injection_metadata, step_configs, on_error
+            steps, injection_metadata, on_error
         )
-        self._graph = _DependencyGraph(steps, topology, step_configs)
+        self._graph = _DependencyGraph(steps, topology)
+        self._failure_handler = _FailureHandler(steps, self._invoker, self._queue)
 
     async def _execute_startup(self) -> Optional[Event]:
         try:
@@ -98,10 +98,6 @@ class _PipelineRunner(Generic[StateT, ContextT]):
         self._total_active_tasks += 1
         self._tg.create_task(coro)
 
-    async def _report_error(self, name: str, owner: str, error: Exception) -> None:
-        await self._queue.put(Event(EventType.ERROR, name, str(error)))
-        await self._queue.put(_StepResult(owner, name, None))
-
     def _schedule(
         self,
         name: str,
@@ -119,56 +115,7 @@ class _PipelineRunner(Generic[StateT, ContextT]):
             res = await self._invoker.execute(name, self._queue, payload)
             await self._queue.put(_StepResult(owner, name, res, payload))
         except Exception as e:
-            await self._handle_step_failure(name, owner, payload, e)
-
-    async def _handle_step_failure(
-        self, name: str, owner: str, payload: Optional[Dict[str, Any]], error: Exception
-    ) -> None:
-        """Centralized error handling logic with escalation."""
-        config = self._step_configs.get(name)
-        local_handler = config.on_error if config else None
-        
-        # 1. Try Local Handler
-        if local_handler:
-            try:
-                res = await self._invoker.execute_handler(
-                    local_handler, error, name, is_global=False
-                )
-                await self._queue.put(_StepResult(owner, name, res, payload))
-                return
-            except Exception as new_error:
-                # Local handler failed, escalate to global
-                error = new_error
-
-        # 2. Try Global Handler
-        global_handler = self._invoker._on_error
-        if global_handler:
-            try:
-                res = await self._invoker.execute_handler(
-                    global_handler, error, name, is_global=True
-                )
-                await self._queue.put(_StepResult(owner, name, res, payload))
-                return
-            except Exception as final_error:
-                error = final_error
-
-        # 3. Default Reporting (Terminal)
-        self._log_error(name, error)
-        await self._report_error(name, owner, error)
-
-    def _log_error(self, name: str, error: Exception) -> None:
-        import traceback
-        import time
-        import logging
-
-        timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-        stack = traceback.format_exc()
-        state_str = str(self._state)[:1000]
-        logging.error(
-            f"[{timestamp}] Step '{name}' failed with {type(error).__name__}: {error}\n"
-            f"State: {state_str}\n"
-            f"Stack trace:\n{stack}"
-        )
+            await self._failure_handler.handle_failure(name, owner, payload, e, self._state)
 
     async def _sub_pipe_wrapper(
         self, sub_pipe: Any, sub_state: Any, owner: str
@@ -180,7 +127,7 @@ class _PipelineRunner(Generic[StateT, ContextT]):
                 await self._queue.put(ev)
             await self._queue.put(_StepResult(owner, name, None))
         except Exception as e:
-            await self._report_error(name, owner, e)
+            await self._failure_handler.handle_failure(name, owner, None, e, self._state)
 
     def _apply_event_hooks(self, event: Event) -> Event:
         """Apply all registered event hooks to transform the event."""
@@ -214,7 +161,9 @@ class _PipelineRunner(Generic[StateT, ContextT]):
 
         if isinstance(res, Raise):
             if res.exception:
-                await self._report_error(item.name, item.owner, res.exception)
+                await self._failure_handler.handle_failure(
+                    item.name, item.owner, item.payload, res.exception, self._state
+                )
             return
 
         if isinstance(res, Skip):
@@ -247,9 +196,9 @@ class _PipelineRunner(Generic[StateT, ContextT]):
 
     def _handle_map(self, res: _Map, owner: str) -> None:
         for m_item in res.items:
-            func = self._steps.get(res.target)
+            step = self._steps.get(res.target)
             payload = None
-            if func:
+            if step:
                 inj = self._injection_metadata.get(res.target, {})
                 for p_name, p_source in inj.items():
                     if p_source == "unknown":
@@ -261,10 +210,12 @@ class _PipelineRunner(Generic[StateT, ContextT]):
         try:
             await asyncio.sleep(timeout)
             if not self._graph.is_barrier_satisfied(name):
-                await self._report_error(
-                    name,
-                    name,
+                await self._failure_handler.handle_failure(
+                    name, 
+                    name, 
+                    None, 
                     TimeoutError(f"Barrier timeout for step '{name}' after {timeout}s"),
+                    self._state
                 )
         except asyncio.CancelledError:
             pass
@@ -274,20 +225,20 @@ class _PipelineRunner(Generic[StateT, ContextT]):
             self._skipped_owners.remove(owner)
             return
 
-        for succ in self._graph.get_successors(owner):
-            is_ready, cancel_timeout, schedule_timeout = self._graph.mark_completed(
-                owner, succ
-            )
-            
-            if cancel_timeout and succ in self._barrier_tasks:
-                self._barrier_tasks[succ].cancel()
-                del self._barrier_tasks[succ]
-            
-            if is_ready:
-                self._schedule(succ)
-            elif schedule_timeout and self._tg:
-                self._barrier_tasks[succ] = self._tg.create_task(
-                    self._barrier_timeout_watcher(succ, schedule_timeout)
+        result = self._graph.transition(owner)
+
+        for barrier_node in result.barriers_to_cancel:
+            if barrier_node in self._barrier_tasks:
+                self._barrier_tasks[barrier_node].cancel()
+                del self._barrier_tasks[barrier_node]
+
+        for step_name in result.steps_to_start:
+            self._schedule(step_name)
+
+        for barrier_node, timeout in result.barriers_to_schedule:
+            if self._tg:
+                self._barrier_tasks[barrier_node] = self._tg.create_task(
+                    self._barrier_timeout_watcher(barrier_node, timeout)
                 )
 
     async def _execution_stream(
