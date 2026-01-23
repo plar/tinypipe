@@ -3,7 +3,6 @@ from typing import Any, Callable, Dict, List, Optional, Union, TYPE_CHECKING
 import inspect
 
 from justpipe.types import (
-    StepConfig,
     _Map,
     _Next,
     _Run,
@@ -42,17 +41,12 @@ class _BaseStep(ABC):
 
     def wrap_middleware(self, middleware: List["Middleware"]) -> None:
         """Apply middleware to the step function."""
-        # Create a temporary config object for middleware context
-        # This preserves backward compatibility for middleware expecting StepConfig
-        # In a future iteration, StepContext should accept BaseStep directly
-        config_compat = self.to_config()
-        
         wrapped = self.original_func
         ctx = StepContext(
             name=self.name,
             kwargs=self.extra,
             pipe_name=self.pipe_name,
-            config=config_compat
+            retries=self.retries
         )
         for mw in middleware:
             wrapped = mw(wrapped, ctx)
@@ -75,18 +69,6 @@ class _BaseStep(ABC):
             return await res
         return res
 
-    def to_config(self) -> StepConfig:
-        """Convert back to StepConfig for backward compatibility."""
-        return StepConfig(
-            name=self.name,
-            func=self.original_func,
-            timeout=self.timeout,
-            retries=self.retries,
-            barrier_timeout=self.barrier_timeout,
-            on_error=self.on_error,
-            extra=self.extra,
-        )
-
 
 class _StandardStep(_BaseStep):
     def __init__(
@@ -107,14 +89,6 @@ class _StandardStep(_BaseStep):
 
     async def execute(self, **kwargs: Any) -> Any:
         return await super().execute(**kwargs)
-
-    def to_config(self) -> StepConfig:
-        cfg = super().to_config()
-        # The 'to' topology is stored separately in the registry/graph,
-        # but StepConfig doesn't hold 'to' for standard steps explicitly
-        # other than for generic 'get_targets'.
-        # We'll rely on the fact that standard steps are topology-driven.
-        return cfg
 
 
 class _MapStep(_BaseStep):
@@ -155,11 +129,6 @@ class _MapStep(_BaseStep):
                 f"must return an iterable, got {type(res)}"
             )
         return _Map(items=items, target=self.map_target)
-
-    def to_config(self) -> StepConfig:
-        cfg = super().to_config()
-        cfg.map_target = self.map_target
-        return cfg
 
 
 class _SwitchStep(_BaseStep):
@@ -213,12 +182,6 @@ class _SwitchStep(_BaseStep):
 
         return Stop if (isinstance(target, _Stop) or target == "Stop") else _Next(target)
 
-    def to_config(self) -> StepConfig:
-        cfg = super().to_config()
-        cfg.switch_routes = self.routes # type: ignore
-        cfg.switch_default = self.default
-        return cfg
-
 
 class _SubPipelineStep(_BaseStep):
     def __init__(
@@ -251,9 +214,3 @@ class _SubPipelineStep(_BaseStep):
             result = res
             
         return _Run(pipe=self.sub_pipeline_obj, state=result)
-
-    def to_config(self) -> StepConfig:
-        cfg = super().to_config()
-        cfg.sub_pipeline = self.sub_pipeline_name
-        cfg.sub_pipeline_obj = self.sub_pipeline_obj
-        return cfg

@@ -12,7 +12,6 @@ from justpipe.middleware import Middleware, tenacity_retry_middleware
 from justpipe.types import (
     Event,
     StepInfo,
-    StepConfig,
     _resolve_name,
     _Stop,
 )
@@ -49,11 +48,6 @@ class _PipelineRegistry:
         self.on_error_handler: Optional[Callable[..., Any]] = None
         self.injection_metadata: Dict[str, Dict[str, str]] = {}
         self.event_hooks: List[Callable[[Event], Event]] = []
-
-    @property
-    def step_configs(self) -> Dict[str, StepConfig]:
-        """Backward compatibility property returning StepConfig objects."""
-        return {name: step.to_config() for name, step in self.steps.items()}
 
     def add_middleware(self, mw: Middleware) -> None:
         self.middleware.append(mw)

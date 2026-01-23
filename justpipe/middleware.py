@@ -36,8 +36,8 @@ def tenacity_retry_middleware(
     ctx: StepContext,
 ) -> Callable[..., Any]:
     retries: Union[int, Dict[str, Any]] = 0
-    if ctx.config:
-        retries = ctx.config.retries
+    if ctx.retries:
+        retries = ctx.retries
     else:
         retries = ctx.kwargs.get("retries", 0)
 

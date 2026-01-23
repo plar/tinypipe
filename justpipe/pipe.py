@@ -19,7 +19,6 @@ from justpipe.steps import _BaseStep
 from justpipe.types import (
     Event,
     StepInfo,
-    StepConfig,
     _Stop,
 )
 from justpipe.visualization import generate_mermaid_graph
@@ -75,32 +74,6 @@ class Pipe(Generic[StateT, ContextT]):
     def _shutdown(self) -> List[Callable[..., Any]]:
         return self.registry.shutdown_hooks
         
-    @property
-    def _step_configs(self) -> Dict[str, StepConfig]:
-        return self.registry.step_configs
-
-    # Deprecated: kept for potential legacy tests access, though we should migrate tests
-    @property
-    def _step_metadata(self) -> Dict[str, Dict[str, Any]]:
-        # Reconstruct legacy metadata dict from StepConfig if needed
-        # But for now let's hope tests use the public API or we update them
-        # Returning configs as metadata might break if tests expect dicts
-        return {
-            name: {
-                "timeout": c.timeout,
-                "retries": c.retries,
-                "barrier_timeout": c.barrier_timeout,
-                "on_error": c.on_error,
-                "map_target": c.map_target,
-                "switch_routes": c.switch_routes,
-                "switch_default": c.switch_default,
-                "sub_pipeline": c.sub_pipeline,
-                "sub_pipeline_obj": c.sub_pipeline_obj,
-                **c.extra
-            }
-            for name, c in self.registry.step_configs.items()
-        }
-
     @property
     def _injection_metadata(self) -> Dict[str, Dict[str, str]]:
         return self.registry.injection_metadata
