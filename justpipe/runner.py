@@ -26,6 +26,7 @@ from justpipe.types import (
     _Map,
     _Next,
     _Run,
+    StepConfig,
 )
 
 StateT = TypeVar("StateT")
@@ -40,7 +41,7 @@ class _PipelineRunner(Generic[StateT, ContextT]):
         steps: Dict[str, Callable[..., Any]],
         topology: Dict[str, List[str]],
         injection_metadata: Dict[str, Dict[str, str]],
-        step_metadata: Dict[str, Dict[str, Any]],
+        step_configs: Dict[str, StepConfig],
         startup_hooks: List[Callable[..., Any]],
         shutdown_hooks: List[Callable[..., Any]],
         on_error: Optional[Callable[..., Any]] = None,
@@ -49,7 +50,7 @@ class _PipelineRunner(Generic[StateT, ContextT]):
     ):
         self._steps = steps
         self._topology = topology
-        self._step_metadata = step_metadata
+        self._step_configs = step_configs
         self._startup = startup_hooks
         self._shutdown = shutdown_hooks
         self._event_hooks = event_hooks or []
@@ -70,9 +71,9 @@ class _PipelineRunner(Generic[StateT, ContextT]):
 
         # Components
         self._invoker: _StepInvoker[StateT, ContextT] = _StepInvoker(
-            steps, injection_metadata, step_metadata, on_error
+            steps, injection_metadata, step_configs, on_error
         )
-        self._graph = _DependencyGraph(steps, topology, step_metadata)
+        self._graph = _DependencyGraph(steps, topology, step_configs)
 
     async def _execute_startup(self) -> Optional[Event]:
         try:
@@ -118,11 +119,56 @@ class _PipelineRunner(Generic[StateT, ContextT]):
             res = await self._invoker.execute(name, self._queue, payload)
             await self._queue.put(_StepResult(owner, name, res, payload))
         except Exception as e:
+            await self._handle_step_failure(name, owner, payload, e)
+
+    async def _handle_step_failure(
+        self, name: str, owner: str, payload: Optional[Dict[str, Any]], error: Exception
+    ) -> None:
+        """Centralized error handling logic with escalation."""
+        config = self._step_configs.get(name)
+        local_handler = config.on_error if config else None
+        
+        # 1. Try Local Handler
+        if local_handler:
             try:
-                res = await self._invoker.handle_error(name, e)
+                res = await self._invoker.execute_handler(
+                    local_handler, error, name, is_global=False
+                )
                 await self._queue.put(_StepResult(owner, name, res, payload))
+                return
+            except Exception as new_error:
+                # Local handler failed, escalate to global
+                error = new_error
+
+        # 2. Try Global Handler
+        global_handler = self._invoker._on_error
+        if global_handler:
+            try:
+                res = await self._invoker.execute_handler(
+                    global_handler, error, name, is_global=True
+                )
+                await self._queue.put(_StepResult(owner, name, res, payload))
+                return
             except Exception as final_error:
-                await self._report_error(name, owner, final_error)
+                error = final_error
+
+        # 3. Default Reporting (Terminal)
+        self._log_error(name, error)
+        await self._report_error(name, owner, error)
+
+    def _log_error(self, name: str, error: Exception) -> None:
+        import traceback
+        import time
+        import logging
+
+        timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
+        stack = traceback.format_exc()
+        state_str = str(self._state)[:1000]
+        logging.error(
+            f"[{timestamp}] Step '{name}' failed with {type(error).__name__}: {error}\n"
+            f"State: {state_str}\n"
+            f"Stack trace:\n{stack}"
+        )
 
     async def _sub_pipe_wrapper(
         self, sub_pipe: Any, sub_state: Any, owner: str

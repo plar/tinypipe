@@ -1,7 +1,5 @@
 import asyncio
 import inspect
-import logging
-import time
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, Generic, Optional, TypeVar, Union
 
@@ -12,6 +10,7 @@ from justpipe.types import (
     _Next,
     _Run,
     Suspend,
+    StepConfig,
 )
 
 StateT = TypeVar("StateT")
@@ -33,12 +32,12 @@ class _StepInvoker(Generic[StateT, ContextT]):
         self,
         steps: Dict[str, Callable[..., Any]],
         injection_metadata: Dict[str, Dict[str, str]],
-        step_metadata: Dict[str, Dict[str, Any]],
+        step_configs: Dict[str, StepConfig],
         on_error: Optional[Callable[..., Any]] = None,
     ):
         self._steps = steps
         self._injection_metadata = injection_metadata
-        self._step_metadata = step_metadata
+        self._step_configs = step_configs
         self._on_error = on_error
         self._state: Optional[StateT] = None
         self._context: Optional[ContextT] = None
@@ -79,8 +78,8 @@ class _StepInvoker(Generic[StateT, ContextT]):
         if not func:
             raise ValueError(f"Step not found: {name}")
 
-        step_meta = self._step_metadata.get(name, {})
-        timeout = step_meta.get("timeout")
+        config = self._step_configs.get(name)
+        timeout = config.timeout if config else None
 
         # Resolve dependencies
         kwargs = (payload or {}).copy()
@@ -105,41 +104,22 @@ class _StepInvoker(Generic[StateT, ContextT]):
                 raise TimeoutError(f"Step '{name}' timed out after {timeout}s")
         return await _exec()
 
-    async def handle_error(
-        self, name: str, error: Exception, use_global: bool = False
+    async def execute_handler(
+        self, 
+        handler: Callable[..., Any], 
+        error: Exception, 
+        step_name: str,
+        is_global: bool = False
     ) -> Any:
-        """Execute error handlers for a failed step."""
-        step_meta = self._step_metadata.get(name, {})
-        handler = step_meta.get("on_error")
-        meta_key = f"{name}:on_error"
+        """Execute a specific error handler."""
+        # For global handlers, we might use a specific metadata key
+        meta_key = "system:on_error" if is_global else f"{step_name}:on_error"
+        
+        # If the handler is the global one but attached locally (edge case),
+        # we might need to be careful, but generally the caller decides the context.
+        
+        kwargs = self._resolve_injections(meta_key, error=error, step_name=step_name)
 
-        if not handler or use_global:
-            handler = self._on_error
-            meta_key = "system:on_error"
-
-        if handler:
-            kwargs = self._resolve_injections(meta_key, error=error, step_name=name)
-
-            try:
-                if inspect.iscoroutinefunction(handler):
-                    return await handler(**kwargs)
-                return handler(**kwargs)
-            except Exception as e:
-                if handler != self._on_error and self._on_error:
-                    return await self.handle_error(name, e, use_global=True)
-                raise e
-
-        self._default_error_handler(name, error)
-        raise error
-
-    def _default_error_handler(self, name: str, error: Exception) -> None:
-        import traceback
-
-        timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-        stack = traceback.format_exc()
-        state_str = str(self._state)[:1000]
-        logging.error(
-            f"[{timestamp}] Step '{name}' failed with {type(error).__name__}: {error}\n"
-            f"State: {state_str}\n"
-            f"Stack trace:\n{stack}"
-        )
+        if inspect.iscoroutinefunction(handler):
+            return await handler(**kwargs)
+        return handler(**kwargs)

@@ -1,4 +1,3 @@
-import inspect
 from typing import (
     Any,
     AsyncGenerator,
@@ -13,21 +12,15 @@ from typing import (
     get_args,
 )
 
-from justpipe.middleware import Middleware, tenacity_retry_middleware
+from justpipe.middleware import Middleware
 from justpipe.runner import _PipelineRunner
-from justpipe.graph import _validate_routing_target
+from justpipe.registry import PipelineRegistry
 from justpipe.types import (
     Event,
-    Stop,
-    StepContext,
     StepInfo,
-    _Map,
-    _Next,
-    _resolve_name,
-    _Run,
+    StepConfig,
     _Stop,
 )
-from justpipe.utils import _analyze_signature
 from justpipe.visualization import generate_mermaid_graph
 
 StateT = TypeVar("StateT")
@@ -44,18 +37,16 @@ class Pipe(Generic[StateT, ContextT]):
     ):
         self.name = name
         self.queue_size = queue_size
-        self.middleware = (
-            list(middleware) if middleware is not None else [tenacity_retry_middleware]
-        )
         self._validate_on_run = validate_on_run
-        self._steps: Dict[str, Callable[..., Any]] = {}
-        self._topology: Dict[str, List[str]] = {}
-        self._startup: List[Callable[..., Any]] = []
-        self._shutdown: List[Callable[..., Any]] = []
-        self._on_error: Optional[Callable[..., Any]] = None
-        self._injection_metadata: Dict[str, Dict[str, str]] = {}
-        self._step_metadata: Dict[str, Dict[str, Any]] = {}
-        self._event_hooks: List[Callable[[Event], Event]] = []
+        
+        # Determine types for registry
+        state_type, context_type = self._get_types()
+        self.registry = PipelineRegistry(
+            pipe_name=name,
+            middleware=middleware,
+            state_type=state_type,
+            context_type=context_type
+        )
 
     def _get_types(self) -> tuple[Any, Any]:
         orig = getattr(self, "__orig_class__", None)
@@ -65,79 +56,79 @@ class Pipe(Generic[StateT, ContextT]):
                 return args[0], args[1]
         return Any, Any
 
-    def add_middleware(self, mw: Middleware) -> None:
-        self.middleware.append(mw)
+    # Properties for backward compatibility and internal access
+    @property
+    def _steps(self) -> Dict[str, Callable[..., Any]]:
+        return self.registry.steps
 
-    def add_event_hook(self, hook: Callable[[Event], Event]) -> None:
-        """Add a hook that can transform events before they are yielded."""
-        self._event_hooks.append(hook)
+    @property
+    def _topology(self) -> Dict[str, List[str]]:
+        return self.registry.topology
 
-    def on_startup(self, func: Callable[..., Any]) -> Callable[..., Any]:
-        self._startup.append(func)
-        return func
+    @property
+    def _startup(self) -> List[Callable[..., Any]]:
+        return self.registry.startup_hooks
 
-    def on_shutdown(self, func: Callable[..., Any]) -> Callable[..., Any]:
-        self._shutdown.append(func)
-        return func
+    @property
+    def _shutdown(self) -> List[Callable[..., Any]]:
+        return self.registry.shutdown_hooks
+        
+    @property
+    def _step_configs(self) -> Dict[str, StepConfig]:
+        return self.registry.step_configs
 
-    def on_error(self, func: Callable[..., Any]) -> Callable[..., Any]:
-        self._on_error = func
-        state_type, context_type = self._get_types()
-        self._injection_metadata["system:on_error"] = _analyze_signature(
-            func, state_type, context_type, expected_unknowns=0
-        )
-        return func
-
-    def _register_step_config(
-        self,
-        name_or_func: Union[str, Callable[..., Any]],
-        func: Callable[..., Any],
-        to: Union[
-            str, List[str], Callable[..., Any], List[Callable[..., Any]], None
-        ] = None,
-        barrier_timeout: Optional[float] = None,
-        on_error: Optional[Callable[..., Any]] = None,
-        expected_unknowns: int = 1,
-        **kwargs: Any,
-    ) -> str:
-        """Common logic for registering a step's configuration and metadata."""
-        stage_name = _resolve_name(name_or_func)
-        self._step_metadata[stage_name] = {
-            **kwargs,
-            "barrier_timeout": barrier_timeout,
-            "on_error": on_error,
+    # Deprecated: kept for potential legacy tests access, though we should migrate tests
+    @property
+    def _step_metadata(self) -> Dict[str, Dict[str, Any]]:
+        # Reconstruct legacy metadata dict from StepConfig if needed
+        # But for now let's hope tests use the public API or we update them
+        # Returning configs as metadata might break if tests expect dicts
+        return {
+            name: {
+                "timeout": c.timeout,
+                "retries": c.retries,
+                "barrier_timeout": c.barrier_timeout,
+                "on_error": c.on_error,
+                "map_target": c.map_target,
+                "switch_routes": c.switch_routes,
+                "switch_default": c.switch_default,
+                "sub_pipeline": c.sub_pipeline,
+                "sub_pipeline_obj": c.sub_pipeline_obj,
+                **c.extra
+            }
+            for name, c in self.registry.step_configs.items()
         }
 
-        state_type, context_type = self._get_types()
-        self._injection_metadata[stage_name] = _analyze_signature(
-            func,
-            state_type,
-            context_type,
-            expected_unknowns=expected_unknowns,
-        )
+    @property
+    def _injection_metadata(self) -> Dict[str, Dict[str, str]]:
+        return self.registry.injection_metadata
 
-        if on_error:
-            self._injection_metadata[f"{stage_name}:on_error"] = _analyze_signature(
-                on_error, state_type, context_type, expected_unknowns=0
-            )
+    @property
+    def _on_error(self) -> Optional[Callable[..., Any]]:
+        return self.registry.on_error_handler
 
-        if to:
-            _validate_routing_target(to)
-            self._topology[stage_name] = [
-                _resolve_name(t) for t in (to if isinstance(to, list) else [to])
-            ]
+    @property
+    def _event_hooks(self) -> List[Callable[[Event], Event]]:
+        return self.registry.event_hooks
 
-        return stage_name
+    @property
+    def middleware(self) -> List[Middleware]:
+        return self.registry.middleware
 
-    def _wrap_step(
-        self, stage_name: str, func: Callable[..., Any], kwargs: Dict[str, Any]
-    ) -> None:
-        """Apply middleware stack and store the step."""
-        wrapped = func
-        ctx = StepContext(name=stage_name, kwargs=kwargs, pipe_name=self.name)
-        for mw in self.middleware:
-            wrapped = mw(wrapped, ctx)
-        self._steps[stage_name] = wrapped
+    def add_middleware(self, mw: Middleware) -> None:
+        self.registry.add_middleware(mw)
+
+    def add_event_hook(self, hook: Callable[[Event], Event]) -> None:
+        self.registry.add_event_hook(hook)
+
+    def on_startup(self, func: Callable[..., Any]) -> Callable[..., Any]:
+        return self.registry.on_startup(func)
+
+    def on_shutdown(self, func: Callable[..., Any]) -> Callable[..., Any]:
+        return self.registry.on_shutdown(func)
+
+    def on_error(self, func: Callable[..., Any]) -> Callable[..., Any]:
+        return self.registry.on_error(func)
 
     def step(
         self,
@@ -149,16 +140,7 @@ class Pipe(Generic[StateT, ContextT]):
         on_error: Optional[Callable[..., Any]] = None,
         **kwargs: Any,
     ) -> Callable[..., Any]:
-        def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
-            stage_name = self._register_step_config(
-                name or func, func, to, barrier_timeout, on_error, **kwargs
-            )
-            self._wrap_step(stage_name, func, kwargs)
-            return func
-
-        if callable(name) and to is None and not kwargs:
-            return decorator(name)
-        return decorator
+        return self.registry.step(name, to, barrier_timeout, on_error, **kwargs)
 
     def map(
         self,
@@ -171,42 +153,7 @@ class Pipe(Generic[StateT, ContextT]):
         on_error: Optional[Callable[..., Any]] = None,
         **kwargs: Any,
     ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
-        if using is None:
-            raise ValueError("@pipe.map requires 'using' parameter")
-
-        _validate_routing_target(using)
-
-        def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
-            target_name = _resolve_name(using)
-            stage_name = self._register_step_config(
-                name or func,
-                func,
-                to,
-                barrier_timeout,
-                on_error,
-                map_target=target_name,
-                **kwargs,
-            )
-
-            async def map_wrapper(**inner_kwargs: Any) -> _Map:
-                if inspect.isasyncgenfunction(func):
-                    items = [item async for item in func(**inner_kwargs)]
-                    return _Map(items=items, target=target_name)
-
-                result = await func(**inner_kwargs)
-                try:
-                    items = list(result)
-                except TypeError:
-                    raise ValueError(
-                        f"Step '{stage_name}' decorated with @pipe.map "
-                        f"must return an iterable, got {type(result)}"
-                    )
-                return _Map(items=items, target=target_name)
-
-            self._wrap_step(stage_name, map_wrapper, kwargs)
-            return func
-
-        return decorator
+        return self.registry.map(name, using, to, barrier_timeout, on_error, **kwargs)
 
     def switch(
         self,
@@ -228,54 +175,7 @@ class Pipe(Generic[StateT, ContextT]):
         on_error: Optional[Callable[..., Any]] = None,
         **kwargs: Any,
     ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
-        if routes is None:
-            raise ValueError("@pipe.switch requires 'routes' parameter")
-
-        _validate_routing_target(routes)
-        if default:
-            _validate_routing_target(default)
-
-        def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
-            normalized_routes = {}
-            if isinstance(routes, dict):
-                for key, target in routes.items():
-                    normalized_routes[key] = (
-                        "Stop" if isinstance(target, _Stop) else _resolve_name(target)
-                    )
-
-            stage_name = self._register_step_config(
-                name or func,
-                func,
-                None,
-                barrier_timeout,
-                on_error,
-                switch_routes=normalized_routes
-                if isinstance(routes, dict)
-                else "dynamic",
-                switch_default=_resolve_name(default) if default else None,
-                **kwargs,
-            )
-
-            async def switch_wrapper(**inner_kwargs: Any) -> Any:
-                result = await func(**inner_kwargs)
-                target = (
-                    routes.get(result, default)
-                    if isinstance(routes, dict)
-                    else routes(result)
-                )
-
-                if target is None:
-                    raise ValueError(
-                        f"Step '{stage_name}' (switch) returned {result}, "
-                        f"which matches no route and no default was provided."
-                    )
-
-                return Stop if isinstance(target, _Stop) else _Next(target)
-
-            self._wrap_step(stage_name, switch_wrapper, kwargs)
-            return func
-
-        return decorator
+        return self.registry.switch(name, routes, default, barrier_timeout, on_error, **kwargs)
 
     def sub(
         self,
@@ -288,77 +188,25 @@ class Pipe(Generic[StateT, ContextT]):
         on_error: Optional[Callable[..., Any]] = None,
         **kwargs: Any,
     ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
-        if using is None:
-            raise ValueError("@pipe.sub requires 'using' parameter")
-
-        _validate_routing_target(using)
-
-        def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
-            stage_name = self._register_step_config(
-                name or func,
-                func,
-                to,
-                barrier_timeout,
-                on_error,
-                sub_pipeline=using.name if hasattr(using, "name") else "SubPipe",
-                sub_pipeline_obj=using,
-                **kwargs,
-            )
-
-            async def sub_wrapper(**inner_kwargs: Any) -> _Run:
-                result = await func(**inner_kwargs)
-                return _Run(pipe=using, state=result)
-
-            self._wrap_step(stage_name, sub_wrapper, kwargs)
-            return func
-
-        return decorator
+        return self.registry.sub(name, using, to, barrier_timeout, on_error, **kwargs)
 
     def graph(self) -> str:
         return generate_mermaid_graph(
-            self._steps,
-            self._topology,
-            self._step_metadata,
-            startup_hooks=self._startup,
-            shutdown_hooks=self._shutdown,
+            self.registry.steps,
+            self.registry.topology,
+            self.registry.step_configs,
+            startup_hooks=self.registry.startup_hooks,
+            shutdown_hooks=self.registry.shutdown_hooks,
         )
 
     def steps(self) -> Iterator[StepInfo]:
         """Iterate over registered steps with their configuration."""
-        for name, meta in self._step_metadata.items():
-            # Determine the kind of step
-            if "map_target" in meta:
-                kind = "map"
-            elif "switch_routes" in meta:
-                kind = "switch"
-            elif "sub_pipeline" in meta:
-                kind = "sub"
-            else:
-                kind = "step"
-
-            # Collect targets from topology and special routing
-            targets = list(self._topology.get(name, []))
-            if "map_target" in meta:
-                targets.append(meta["map_target"])
-            if "switch_routes" in meta and isinstance(meta["switch_routes"], dict):
-                targets.extend(t for t in meta["switch_routes"].values() if t != "Stop")
-            if meta.get("switch_default"):
-                targets.append(meta["switch_default"])
-
-            yield StepInfo(
-                name=name,
-                timeout=meta.get("timeout"),
-                retries=meta.get("retries", 0) if meta.get("retries") else 0,
-                barrier_timeout=meta.get("barrier_timeout"),
-                has_error_handler=meta.get("on_error") is not None,
-                targets=targets,
-                kind=kind,
-            )
+        return self.registry.get_steps_info()
 
     @property
     def topology(self) -> Dict[str, List[str]]:
         """Read-only view of the execution graph."""
-        return dict(self._topology)
+        return dict(self.registry.topology)
 
     def validate(self) -> None:
         """
@@ -368,7 +216,11 @@ class Pipe(Generic[StateT, ContextT]):
         """
         from justpipe.graph import _DependencyGraph
 
-        graph = _DependencyGraph(self._steps, self._topology, self._step_metadata)
+        graph = _DependencyGraph(
+            self.registry.steps,
+            self.registry.topology,
+            self.registry.step_configs
+        )
         graph.validate()
 
     async def run(
@@ -381,15 +233,15 @@ class Pipe(Generic[StateT, ContextT]):
         if self._validate_on_run:
             self.validate()
         runner: _PipelineRunner[StateT, ContextT] = _PipelineRunner(
-            self._steps,
-            self._topology,
-            self._injection_metadata,
-            self._step_metadata,
-            self._startup,
-            self._shutdown,
-            on_error=self._on_error,
+            self.registry.steps,
+            self.registry.topology,
+            self.registry.injection_metadata,
+            self.registry.step_configs,
+            self.registry.startup_hooks,
+            self.registry.shutdown_hooks,
+            on_error=self.registry.on_error_handler,
             queue_size=queue_size if queue_size is not None else self.queue_size,
-            event_hooks=self._event_hooks,
+            event_hooks=self.registry.event_hooks,
         )
         async for event in runner.run(state, context, start):
             yield event

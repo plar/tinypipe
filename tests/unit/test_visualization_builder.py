@@ -6,6 +6,7 @@ from justpipe.visualization import (
     NodeKind,
     PipelineASTBuilder,
 )
+from justpipe.types import StepConfig
 
 
 def test_ast_from_empty_pipe() -> None:
@@ -24,9 +25,11 @@ def test_ast_from_single_step() -> None:
 
     steps = {"a": step_a}
     topology: Dict[str, List[str]] = {}
-    metadata: Dict[str, Dict[str, Any]] = {}
+    step_configs: Dict[str, StepConfig] = {
+        "a": StepConfig(name="a", func=step_a)
+    }
 
-    ast = PipelineASTBuilder.build(steps, topology, metadata)
+    ast = PipelineASTBuilder.build(steps, topology, step_configs)
     assert len(ast.nodes) == 1
     node = ast.nodes["a"]
     assert node.name == "a"
@@ -47,9 +50,12 @@ def test_ast_from_linear_pipe() -> None:
 
     steps = {"a": step_a, "b": step_b}
     topology = {"a": ["b"]}
-    metadata: Dict[str, Dict[str, Any]] = {}
+    step_configs: Dict[str, StepConfig] = {
+        "a": StepConfig(name="a", func=step_a),
+        "b": StepConfig(name="b", func=step_b)
+    }
 
-    ast = PipelineASTBuilder.build(steps, topology, metadata)
+    ast = PipelineASTBuilder.build(steps, topology, step_configs)
     assert len(ast.nodes) == 2
     assert len(ast.edges) == 1
 
@@ -77,9 +83,12 @@ def test_ast_streaming_node() -> None:
 
     steps = {"regular": regular, "streaming": streaming}
     topology = {"regular": ["streaming"]}
-    metadata: Dict[str, Dict[str, Any]] = {}
+    step_configs: Dict[str, StepConfig] = {
+        "regular": StepConfig(name="regular", func=regular),
+        "streaming": StepConfig(name="streaming", func=streaming)
+    }
 
-    ast = PipelineASTBuilder.build(steps, topology, metadata)
+    ast = PipelineASTBuilder.build(steps, topology, step_configs)
     assert ast.nodes["streaming"].kind == NodeKind.STREAMING
     assert ast.nodes["regular"].kind == NodeKind.STEP
 
@@ -98,9 +107,13 @@ def test_ast_parallel_group() -> None:
 
     steps = {"a": step_a, "b": step_b, "c": step_c}
     topology = {"a": ["b", "c"]}
-    metadata: Dict[str, Dict[str, Any]] = {}
+    step_configs: Dict[str, StepConfig] = {
+        "a": StepConfig(name="a", func=step_a),
+        "b": StepConfig(name="b", func=step_b),
+        "c": StepConfig(name="c", func=step_c)
+    }
 
-    ast = PipelineASTBuilder.build(steps, topology, metadata)
+    ast = PipelineASTBuilder.build(steps, topology, step_configs)
     assert len(ast.parallel_groups) == 1
     group = ast.parallel_groups[0]
     assert group.source_id == "a"
@@ -118,9 +131,12 @@ def test_ast_map_metadata() -> None:
 
     steps = {"mapper": mapper, "worker": worker}
     topology: Dict[str, List[str]] = {}
-    metadata = {"mapper": {"map_target": "worker"}}
+    step_configs: Dict[str, StepConfig] = {
+        "mapper": StepConfig(name="mapper", func=mapper, map_target="worker"),
+        "worker": StepConfig(name="worker", func=worker)
+    }
 
-    ast = PipelineASTBuilder.build(steps, topology, metadata)
+    ast = PipelineASTBuilder.build(steps, topology, step_configs)
     assert ast.nodes["mapper"].kind == NodeKind.MAP
     assert ast.nodes["worker"].is_map_target
     assert len(ast.edges) == 1
@@ -141,14 +157,17 @@ def test_ast_switch_metadata() -> None:
 
     steps = {"router": router, "handler_a": handler_a, "handler_b": handler_b}
     topology: Dict[str, List[str]] = {}
-    metadata = {
-        "router": {
-            "switch_routes": {"yes": "handler_a", "no": "handler_b"},
-            "switch_default": None,
-        }
+    step_configs: Dict[str, StepConfig] = {
+        "router": StepConfig(
+            name="router", 
+            func=router,
+            switch_routes={"yes": "handler_a", "no": "handler_b"}
+        ),
+        "handler_a": StepConfig(name="handler_a", func=handler_a),
+        "handler_b": StepConfig(name="handler_b", func=handler_b)
     }
 
-    ast = PipelineASTBuilder.build(steps, topology, metadata)
+    ast = PipelineASTBuilder.build(steps, topology, step_configs)
     assert ast.nodes["router"].kind == NodeKind.SWITCH
     assert len(ast.edges) == 2
     labels = {e.label for e in ast.edges}
@@ -169,14 +188,18 @@ def test_ast_switch_with_default() -> None:
 
     steps = {"router": router, "handler": handler, "fallback": fallback}
     topology: Dict[str, List[str]] = {}
-    metadata = {
-        "router": {
-            "switch_routes": {"yes": "handler"},
-            "switch_default": "fallback",
-        }
+    step_configs: Dict[str, StepConfig] = {
+        "router": StepConfig(
+            name="router",
+            func=router,
+            switch_routes={"yes": "handler"},
+            switch_default="fallback"
+        ),
+        "handler": StepConfig(name="handler", func=handler),
+        "fallback": StepConfig(name="fallback", func=fallback)
     }
 
-    ast = PipelineASTBuilder.build(steps, topology, metadata)
+    ast = PipelineASTBuilder.build(steps, topology, step_configs)
     assert len(ast.edges) == 2
     labels = {e.label for e in ast.edges}
     assert labels == {"yes", "default"}
@@ -196,9 +219,13 @@ def test_ast_isolated_node() -> None:
 
     steps = {"main": main, "orphan": orphan, "leaf": leaf}
     topology = {"main": ["leaf"]}
-    metadata: Dict[str, Dict[str, Any]] = {}
+    step_configs: Dict[str, StepConfig] = {
+        "main": StepConfig(name="main", func=main),
+        "orphan": StepConfig(name="orphan", func=orphan),
+        "leaf": StepConfig(name="leaf", func=leaf)
+    }
 
-    ast = PipelineASTBuilder.build(steps, topology, metadata)
+    ast = PipelineASTBuilder.build(steps, topology, step_configs)
     assert ast.nodes["orphan"].is_isolated
     assert not ast.nodes["main"].is_isolated
     assert not ast.nodes["leaf"].is_isolated

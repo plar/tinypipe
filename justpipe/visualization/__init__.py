@@ -11,12 +11,13 @@ from justpipe.visualization.ast import (
 )
 from justpipe.visualization.builder import PipelineASTBuilder
 from justpipe.visualization.mermaid import MermaidRenderer, MermaidTheme
+from justpipe.types import StepConfig
 
 
 def generate_mermaid_graph(
     steps: Dict[str, Callable[..., Any]],
     topology: Dict[str, List[str]],
-    step_metadata: Optional[Dict[str, Dict[str, Any]]] = None,
+    step_configs: Optional[Dict[str, StepConfig]] = None,
     startup_hooks: Optional[List[Callable[..., Any]]] = None,
     shutdown_hooks: Optional[List[Callable[..., Any]]] = None,
     *,
@@ -29,7 +30,7 @@ def generate_mermaid_graph(
     Args:
         steps: Map of registered step functions.
         topology: Map of static execution paths.
-        step_metadata: Optional metadata for steps (map/switch info).
+        step_configs: Optional map of step configurations (StepConfig).
         startup_hooks: Optional list of startup hook functions.
         shutdown_hooks: Optional list of shutdown hook functions.
         theme: Optional MermaidTheme for custom styling.
@@ -42,12 +43,13 @@ def generate_mermaid_graph(
     ast = PipelineASTBuilder.build(
         steps,
         topology,
-        step_metadata or {},
+        step_configs or {},
         startup_hooks=startup_hooks,
         shutdown_hooks=shutdown_hooks,
     )
     renderer = MermaidRenderer(ast, effective_theme)
     return renderer.render()
+
 
 
 __all__ = [

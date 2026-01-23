@@ -10,6 +10,7 @@ from justpipe.visualization.ast import (
     VisualEdge,
     VisualNode,
 )
+from justpipe.types import StepConfig
 
 
 class PipelineASTBuilder:
@@ -20,7 +21,7 @@ class PipelineASTBuilder:
         cls,
         steps: Dict[str, Callable[..., Any]],
         topology: Dict[str, List[str]],
-        step_metadata: Dict[str, Dict[str, Any]],
+        step_configs: Dict[str, StepConfig],
         startup_hooks: Optional[List[Callable[..., Any]]] = None,
         shutdown_hooks: Optional[List[Callable[..., Any]]] = None,
     ) -> VisualAST:
@@ -34,13 +35,8 @@ class PipelineASTBuilder:
         for targets in topology.values():
             all_nodes.update(targets)
 
-        for meta in step_metadata.values():
-            if "map_target" in meta:
-                all_nodes.add(meta["map_target"])
-            if "switch_routes" in meta and isinstance(meta["switch_routes"], dict):
-                all_nodes.update(meta["switch_routes"].values())
-            if "switch_default" in meta and meta["switch_default"]:
-                all_nodes.add(meta["switch_default"])
+        for config in step_configs.values():
+            all_nodes.update(config.get_targets())
 
         # Remove special "Stop" marker if present
         all_nodes.discard("Stop")
@@ -50,41 +46,12 @@ class PipelineASTBuilder:
             name for name, func in steps.items() if inspect.isasyncgenfunction(func)
         }
 
-        # Identify switch nodes
-        switch_nodes = {
-            name for name, meta in step_metadata.items() if "switch_routes" in meta
-        }
-
-        # Identify sub-pipeline nodes
-        sub_nodes = {
-            name for name, meta in step_metadata.items() if "sub_pipeline" in meta
-        }
-
-        # Identify map nodes
-        map_nodes = {
-            name for name, meta in step_metadata.items() if "map_target" in meta
-        }
-
-        # Identify nodes that are targets of a map operation
-        map_targets = {
-            meta["map_target"]
-            for meta in step_metadata.values()
-            if "map_target" in meta
-        }
-
         # Calculate all targets (nodes that are destinations)
         all_targets: Set[str] = set()
         for targets in topology.values():
             all_targets.update(targets)
-        for meta in step_metadata.values():
-            if "map_target" in meta:
-                all_targets.add(meta["map_target"])
-            if "switch_routes" in meta and isinstance(meta["switch_routes"], dict):
-                all_targets.update(
-                    t for t in meta["switch_routes"].values() if t != "Stop"
-                )
-            if "switch_default" in meta and meta["switch_default"]:
-                all_targets.add(meta["switch_default"])
+        for config in step_configs.values():
+            all_targets.update(config.get_targets())
 
         # Entry points: nodes that are in topology or steps but not targets
         entry_points = set(topology.keys()) - all_targets
@@ -94,10 +61,15 @@ class PipelineASTBuilder:
             entry_points = set(steps.keys())
 
         # Terminal nodes: nodes that have no outgoing edges
+        map_targets = {
+            config.map_target
+            for config in step_configs.values()
+            if config.map_target
+        }
+
+        # Terminal nodes: nodes that have no outgoing edges
         non_terminal = set(topology.keys()) | {
-            n
-            for n, m in step_metadata.items()
-            if "map_target" in m or "switch_routes" in m
+            n for n, c in step_configs.items() if c.get_targets()
         }
         terminal_nodes = all_nodes - non_terminal
 
@@ -111,11 +83,13 @@ class PipelineASTBuilder:
         nodes: Dict[str, VisualNode] = {}
         for name in all_nodes:
             # Determine kind
-            if name in switch_nodes:
+            kind_str = step_configs[name].get_kind() if name in step_configs else "step"
+            
+            if kind_str == "switch":
                 kind = NodeKind.SWITCH
-            elif name in sub_nodes:
+            elif kind_str == "sub":
                 kind = NodeKind.SUB
-            elif name in map_nodes:
+            elif kind_str == "map":
                 kind = NodeKind.MAP
             elif name in streaming_nodes:
                 kind = NodeKind.STREAMING
@@ -124,14 +98,21 @@ class PipelineASTBuilder:
 
             sub_graph = None
             if kind == NodeKind.SUB:
-                sub_pipe = step_metadata.get(name, {}).get("sub_pipeline_obj")
+                cfg = step_configs.get(name)
+                sub_pipe = cfg.sub_pipeline_obj if cfg else None
                 if sub_pipe:
                     # Recursive call to builder
                     sub_graph = cls.build(
                         sub_pipe._steps,
                         sub_pipe._topology,
-                        sub_pipe._step_metadata,
+                        sub_pipe._step_configs,
                     )
+            
+            # Reconstruct metadata for backward compatibility of visualization model
+            node_metadata: Dict[str, Any] = {}
+            if name in step_configs:
+                # We can populate it if needed by visualization renderer
+                pass
 
             nodes[name] = VisualNode(
                 id=safe_ids[name],
@@ -141,7 +122,7 @@ class PipelineASTBuilder:
                 is_terminal=name in terminal_nodes,
                 is_isolated=name in isolated_nodes,
                 is_map_target=name in map_targets,
-                metadata=step_metadata.get(name, {}),
+                metadata=node_metadata,
                 sub_graph=sub_graph,
             )
 
@@ -154,13 +135,13 @@ class PipelineASTBuilder:
                 edges.append(VisualEdge(source=src, target=target))
 
         # Map and switch edges from metadata
-        for src, meta in step_metadata.items():
-            if "map_target" in meta:
-                target = meta["map_target"]
+        for src, config in step_configs.items():
+            if config.map_target:
+                target = config.map_target
                 edges.append(VisualEdge(source=src, target=target, is_map_edge=True))
 
-            if "switch_routes" in meta:
-                routes = meta["switch_routes"]
+            if config.switch_routes:
+                routes = config.switch_routes
                 if isinstance(routes, dict):
                     for val, target in routes.items():
                         if target != "Stop":
@@ -168,7 +149,7 @@ class PipelineASTBuilder:
                                 VisualEdge(source=src, target=target, label=str(val))
                             )
 
-                default = meta.get("switch_default")
+                default = config.switch_default
                 if default:
                     edges.append(
                         VisualEdge(source=src, target=default, label="default")

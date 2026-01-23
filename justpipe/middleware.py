@@ -2,7 +2,7 @@ import inspect
 import logging
 import time
 import warnings
-from typing import Any, AsyncGenerator, Callable
+from typing import Any, AsyncGenerator, Callable, Dict, Union
 
 try:
     from tenacity import retry, stop_after_attempt, wait_exponential
@@ -35,7 +35,12 @@ def tenacity_retry_middleware(
     func: Callable[..., Any],
     ctx: StepContext,
 ) -> Callable[..., Any]:
-    retries = ctx.kwargs.get("retries", 0)
+    retries: Union[int, Dict[str, Any]] = 0
+    if ctx.config:
+        retries = ctx.config.retries
+    else:
+        retries = ctx.kwargs.get("retries", 0)
+
     if not retries:
         return func
 

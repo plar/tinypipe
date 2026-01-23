@@ -1,7 +1,7 @@
 from collections import defaultdict
 from typing import Any, Callable, Dict, List, Optional, Set, Union
 
-from justpipe.types import Stop, _resolve_name
+from justpipe.types import Stop, _resolve_name, StepConfig
 
 
 def _validate_routing_target(target: Any) -> None:
@@ -24,11 +24,11 @@ class _DependencyGraph:
         self,
         steps: Dict[str, Callable[..., Any]],
         topology: Dict[str, List[str]],
-        step_metadata: Dict[str, Dict[str, Any]],
+        step_configs: Dict[str, StepConfig],
     ):
         self._steps = steps
         self._topology = topology
-        self._step_metadata = step_metadata
+        self._step_configs = step_configs
         self._parents_map: Dict[str, Set[str]] = defaultdict(set)
         self._completed_parents: Dict[str, Set[str]] = defaultdict(set)
 
@@ -48,13 +48,8 @@ class _DependencyGraph:
             all_targets = {
                 t for step_targets in self._topology.values() for t in step_targets
             }
-            for meta in self._step_metadata.values():
-                if "map_target" in meta:
-                    all_targets.add(meta["map_target"])
-                if "switch_routes" in meta and isinstance(meta["switch_routes"], dict):
-                    all_targets.update(meta["switch_routes"].values())
-                if "switch_default" in meta and meta["switch_default"]:
-                    all_targets.add(meta["switch_default"])
+            for config in self._step_configs.values():
+                all_targets.update(config.get_targets())
 
             roots = set(self._steps.keys()) - all_targets
             if not roots:
@@ -81,7 +76,8 @@ class _DependencyGraph:
         
         schedule_timeout = None
         if not is_ready and is_first and len(parents_needed) > 1:
-            schedule_timeout = self._step_metadata.get(succ, {}).get("barrier_timeout")
+            config = self._step_configs.get(succ)
+            schedule_timeout = config.barrier_timeout if config else None
 
         return is_ready, cancel_timeout, schedule_timeout
 
@@ -108,37 +104,31 @@ class _DependencyGraph:
                 referenced_names.add(child)
 
         # 2. Check special metadata (map_target, switch_routes)
-        for step_name, meta in self._step_metadata.items():
-            if "map_target" in meta:
-                target = meta["map_target"]
-                if target not in all_step_names:
-                    raise ValueError(
-                        f"Step '{step_name}' (map) targets unknown step '{target}'"
-                    )
-                referenced_names.add(target)
+        for step_name, config in self._step_configs.items():
+            targets = config.get_targets()
+            unknowns = [t for t in targets if t not in all_step_names]
 
-            if "switch_routes" in meta:
-                routes = meta["switch_routes"]
-                if isinstance(routes, dict):
-                    for route_name in routes.values():
-                        if (
-                            isinstance(route_name, str)
-                            and route_name != "Stop"
-                            and route_name not in all_step_names
-                        ):
-                            raise ValueError(
-                                f"Step '{step_name}' (switch) routes to unknown step '{route_name}'"
-                            )
-                        if isinstance(route_name, str) and route_name != "Stop":
-                            referenced_names.add(route_name)
+            if not unknowns:
+                referenced_names.update(targets)
+                continue
 
-                default = meta.get("switch_default")
-                if default and default not in all_step_names:
-                    raise ValueError(
-                        f"Step '{step_name}' (switch) has unknown default route '{default}'"
-                    )
-                if default:
-                    referenced_names.add(default)
+            # Detailed error reporting for unknowns
+            if config.map_target in unknowns:
+                raise ValueError(
+                    f"Step '{step_name}' (map) targets unknown step '{config.map_target}'"
+                )
+
+            if config.switch_default in unknowns:
+                raise ValueError(
+                    f"Step '{step_name}' (switch) has unknown default route '{config.switch_default}'"
+                )
+
+            if config.switch_routes and isinstance(config.switch_routes, dict):
+                for route_name in config.switch_routes.values():
+                    if isinstance(route_name, str) and route_name in unknowns:
+                        raise ValueError(
+                            f"Step '{step_name}' (switch) routes to unknown step '{route_name}'"
+                        )
 
         # 3. Detect roots (entry points)
         roots = all_step_names - referenced_names
@@ -156,15 +146,9 @@ class _DependencyGraph:
             path.add(node)
 
             targets = self._topology.get(node, []).copy()
-            meta = self._step_metadata.get(node, {})
-            if "map_target" in meta:
-                targets.append(meta["map_target"])
-            if "switch_routes" in meta and isinstance(meta["switch_routes"], dict):
-                targets.extend(
-                    [t for t in meta["switch_routes"].values() if t != "Stop"]
-                )
-            if "switch_default" in meta and meta["switch_default"]:
-                targets.append(meta["switch_default"])
+            config = self._step_configs.get(node)
+            if config:
+                targets.extend(config.get_targets())
 
             for target in targets:
                 if target in path:
