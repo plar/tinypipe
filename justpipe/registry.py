@@ -287,29 +287,6 @@ class _PipelineRegistry:
             targets = list(self.topology.get(name, []))
             targets.extend(step.get_targets())
             
-            # Use set to dedup targets that might be in both topology and step internal config
-            # (though normally StandardStep separates them, but get_targets for StandardStep returns self.to)
-            # Actually topology dict is the primary source for StandardStep in the current implementation,
-            # but StandardStep.get_targets() returns self.to which is initialized from 'to'.
-            
-            # Wait, in _register_step I add 'to' to self.topology. 
-            # StandardStep also stores it. Duplicate?
-            # self.topology stores explicit routing.
-            # step.get_targets() stores targets inherent to the step logic (map target, switch routes).
-            # StandardStep: get_targets() returns self.to.
-            
-            # If I put 'to' in self.topology AND in step.to, I have duplication.
-            # But the graph builder looks at topology AND step_configs.get_targets().
-            # I should align this.
-            
-            # Current Registry behavior:
-            # 1. Stores 'to' in self.topology.
-            # 2. Config doesn't store 'to'.
-            # New behavior:
-            # 1. Stores 'to' in self.topology.
-            # 2. StandardStep stores 'to' in self.to.
-            
-            # Let's just yield unique targets.
             unique_targets = sorted(list(set(targets)))
 
             yield StepInfo(

@@ -102,12 +102,6 @@ class _PipelineASTBuilder:
             if isinstance(step, _SubPipelineStep):
                 sub_pipe = step.sub_pipeline_obj
                 if sub_pipe:
-                    # Recursive call to builder
-                    # Accessing protected members of subpipe.
-                    # Assuming subpipe is a Pipe instance which has these protected members
-                    # or we access via its registry.
-                    # To avoid deep coupling, we assume sub_pipe object has '_steps' etc.
-                    # But Pipe._steps calls registry.steps which is now BaseStep dict.
                     sub_graph = cls.build(
                         sub_pipe._steps,
                         sub_pipe._topology,

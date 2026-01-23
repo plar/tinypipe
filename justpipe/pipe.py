@@ -56,10 +56,9 @@ class Pipe(Generic[StateT, ContextT]):
                 return args[0], args[1]
         return Any, Any
 
-    # Properties for backward compatibility and internal access
+    # Internal properties for introspection and runner access
     @property
     def _steps(self) -> Dict[str, _BaseStep]:
-        # Registry stores BaseStep objects now.
         return self.registry.steps
 
     @property

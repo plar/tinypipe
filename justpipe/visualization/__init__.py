@@ -23,7 +23,20 @@ def generate_mermaid_graph(
     theme: Optional[MermaidTheme] = None,
     direction: str = "TD",
 ) -> str:
-# ... (middle lines omitted)
+    """
+    Generate a Mermaid diagram from the pipeline structure.
+
+    Args:
+        steps: Map of registered step objects (BaseStep).
+        topology: Map of static execution paths.
+        startup_hooks: Optional list of startup hook functions.
+        shutdown_hooks: Optional list of shutdown hook functions.
+        theme: Optional MermaidTheme for custom styling.
+        direction: Graph direction (default: TD).
+
+    Returns:
+        A Mermaid.js diagram string.
+    """
     effective_theme = theme or MermaidTheme(direction=direction)
     ast = _PipelineASTBuilder.build(
         steps,
@@ -51,4 +64,3 @@ __all__ = [
     # Convenience function
     "generate_mermaid_graph",
 ]
-
