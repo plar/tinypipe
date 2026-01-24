@@ -28,6 +28,35 @@ async def test_startup_handlers(state: Any, context: Any) -> None:
 
 
 @pytest.mark.asyncio
+async def test_lifecycle_injection(state: Any, context: Any) -> None:
+    StateType = type(state)
+    ContextType = type(context)
+    pipe: Pipe[StateType, ContextType] = Pipe[StateType, ContextType]()
+    seen: List[str] = []
+
+    @pipe.on_startup
+    async def startup(s: StateType, ctx: ContextType) -> None:
+        assert s is state
+        assert ctx is context
+        seen.append("startup")
+
+    @pipe.on_shutdown
+    async def shutdown(s: StateType, ctx: ContextType) -> None:
+        assert s is state
+        assert ctx is context
+        seen.append("shutdown")
+
+    @pipe.step("start")
+    async def start(s: StateType) -> None:
+        assert s is state
+
+    async for _ in pipe.run(state, context):
+        pass
+
+    assert seen == ["startup", "shutdown"]
+
+
+@pytest.mark.asyncio
 async def test_shutdown_called_once_on_startup_failure() -> None:
     pipe: Pipe[Any, Any] = Pipe("test_pipe")
 

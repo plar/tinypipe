@@ -95,7 +95,10 @@ def simple_logging_middleware(
         async def wrapped_func(**inner_kwargs: Any) -> Any:
             start = time.perf_counter()
             try:
-                return await func(**inner_kwargs)
+                result = func(**inner_kwargs)
+                if inspect.isawaitable(result):
+                    return await result
+                return result
             finally:
                 elapsed = time.perf_counter() - start
                 logger.debug(f"Step '{ctx.name}' took {elapsed:.4f}s")

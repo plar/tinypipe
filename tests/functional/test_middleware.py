@@ -188,3 +188,21 @@ async def test_simple_logging_middleware_generator() -> None:
         mock_debug.assert_called()
         args, _ = mock_debug.call_args
         assert "Step 'stream' took" in args[0]
+
+
+@pytest.mark.asyncio
+async def test_simple_logging_middleware_sync_step() -> None:
+    pipe: Pipe[Any, Any] = Pipe()
+    pipe.add_middleware(simple_logging_middleware)
+
+    @pipe.step("sync_step")
+    def sync_step() -> None:
+        return None
+
+    with patch("logging.Logger.debug") as mock_debug:
+        async for _ in pipe.run({}):
+            pass
+
+        mock_debug.assert_called()
+        args, _ = mock_debug.call_args
+        assert "Step 'sync_step' took" in args[0]

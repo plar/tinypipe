@@ -1,5 +1,8 @@
 from typing import Any
-from justpipe import Pipe
+
+import pytest
+
+from justpipe import DefinitionError, Pipe
 
 
 def test_pipe_init() -> None:
@@ -67,3 +70,17 @@ def test_step_decorator_no_parens_explicit_call() -> None:
     pipe.step(my_step)
 
     assert "my_step" in pipe._steps
+
+
+def test_duplicate_step_name_raises() -> None:
+    pipe: Pipe[Any, Any] = Pipe()
+
+    @pipe.step("dup")
+    async def first() -> None:
+        pass
+
+    with pytest.raises(DefinitionError, match="already registered"):
+
+        @pipe.step("dup")
+        async def second() -> None:
+            pass

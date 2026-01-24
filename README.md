@@ -272,6 +272,7 @@ def custom_middleware(func, ctx: StepContext):
 [View Example Code](examples/10_lifecycle_hooks)
 
 Hooks are useful for managing external resources like database connections or API clients.
+Hooks use the same dependency-injection rules as steps, so you can type or name parameters for state/context.
 
 ```python
 @pipe.on_startup

@@ -98,6 +98,27 @@ async def test_run_subpipeline() -> None:
 
 
 @pytest.mark.asyncio
+async def test_subpipeline_context_propagation(context: Any) -> None:
+    """Sub-pipeline steps should receive parent context."""
+    sub_pipe: Pipe[Any, Any] = Pipe()
+
+    @sub_pipe.step("sub_step")
+    async def sub_step(ctx: Any) -> None:
+        assert ctx is context
+
+    main_pipe: Pipe[Any, Any] = Pipe()
+
+    @main_pipe.sub("runner", using=sub_pipe)
+    async def runner() -> Dict[str, Any]:
+        return {}
+
+    events = [event async for event in main_pipe.run({}, context)]
+    stages = [event.stage for event in events]
+    assert "runner:sub_step" in stages
+    assert not any(event.type == EventType.ERROR for event in events)
+
+
+@pytest.mark.asyncio
 async def test_suspend_execution() -> None:
     """Test early termination via Suspend return type."""
     pipe: Pipe[Any, Any] = Pipe()

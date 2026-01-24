@@ -16,14 +16,26 @@ def _analyze_signature(
     expected_unknowns: int = 0,
 ) -> Dict[str, str]:
     """Analyze function signature and map parameters to state or context."""
+    def _matches_expected_type(annotation: Any, expected_type: Any) -> bool:
+        if expected_type is Any or annotation is inspect.Parameter.empty:
+            return False
+        if annotation is expected_type:
+            return True
+        if isinstance(expected_type, type) and isinstance(annotation, type):
+            try:
+                return issubclass(expected_type, annotation)
+            except TypeError:
+                return False
+        return False
+
     mapping = {}
     sig = inspect.signature(func)
     unknowns = []
     for name, param in sig.parameters.items():
         # 1. Match by Type (skip if type is Any to avoid collisions)
-        if param.annotation is state_type and state_type is not Any:
+        if _matches_expected_type(param.annotation, state_type):
             mapping[name] = "state"
-        elif param.annotation is context_type and context_type is not Any:
+        elif _matches_expected_type(param.annotation, context_type):
             mapping[name] = "context"
         # 2. Match by Name (Fallback)
         elif name in STATE_ALIASES:
@@ -50,3 +62,23 @@ def _analyze_signature(
         )
 
     return mapping
+
+
+def _resolve_injection_kwargs(
+    inj_meta: Dict[str, str],
+    state: Any,
+    context: Any,
+    error: Exception | None = None,
+    step_name: str | None = None,
+) -> Dict[str, Any]:
+    kwargs: Dict[str, Any] = {}
+    for param_name, source in inj_meta.items():
+        if source == "state":
+            kwargs[param_name] = state
+        elif source == "context":
+            kwargs[param_name] = context
+        elif source == "error":
+            kwargs[param_name] = error
+        elif source == "step_name":
+            kwargs[param_name] = step_name
+    return kwargs

@@ -24,7 +24,7 @@ def _validate_routing_target(target: Any) -> None:
             _validate_routing_target(t)
     elif isinstance(target, dict):
         for t in target.values():
-            if id(t) != id(Stop):
+            if t is not Stop:
                 _validate_routing_target(t)
     else:
         raise ValueError(

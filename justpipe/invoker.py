@@ -6,12 +6,14 @@ from typing import Any, Callable, Dict, Generic, Optional, TypeVar, Union
 from justpipe.types import (
     Event,
     EventType,
+    HookSpec,
     _Map,
     _Next,
     _Run,
     Suspend,
 )
 from justpipe.steps import _BaseStep
+from justpipe.utils import _resolve_injection_kwargs
 
 StateT = TypeVar("StateT")
 ContextT = TypeVar("ContextT")
@@ -32,15 +34,15 @@ class _StepInvoker(Generic[StateT, ContextT]):
         self,
         steps: Dict[str, _BaseStep],
         injection_metadata: Dict[str, Dict[str, str]],
-        on_error: Optional[Callable[..., Any]] = None,
+        on_error: Optional[HookSpec] = None,
     ):
         self._steps = steps
         self._injection_metadata = injection_metadata
         self._on_error = on_error
 
     @property
-    def global_error_handler(self) -> Optional[Callable[..., Any]]:
-        """Return the global error handler."""
+    def global_error_handler(self) -> Optional[HookSpec]:
+        """Return the global error hook."""
         return self._on_error
 
     def _resolve_injections(
@@ -53,17 +55,9 @@ class _StepInvoker(Generic[StateT, ContextT]):
     ) -> Dict[str, Any]:
         """Resolve dependency injection parameters for a step or handler."""
         inj_meta = self._injection_metadata.get(meta_key, {})
-        kwargs: Dict[str, Any] = {}
-        for param_name, source in inj_meta.items():
-            if source == "state":
-                kwargs[param_name] = state
-            elif source == "context":
-                kwargs[param_name] = context
-            elif source == "error":
-                kwargs[param_name] = error
-            elif source == "step_name":
-                kwargs[param_name] = step_name
-        return kwargs
+        return _resolve_injection_kwargs(
+            inj_meta, state, context, error=error, step_name=step_name
+        )
 
     async def execute(
         self,
@@ -114,7 +108,7 @@ class _StepInvoker(Generic[StateT, ContextT]):
 
     async def execute_handler(
         self,
-        handler: Callable[..., Any],
+        handler: Union[HookSpec, Callable[..., Any]],
         error: Exception,
         step_name: str,
         state: Optional[StateT],
@@ -122,16 +116,24 @@ class _StepInvoker(Generic[StateT, ContextT]):
         is_global: bool = False,
     ) -> Any:
         """Execute a specific error handler."""
-        # For global handlers, we might use a specific metadata key
-        meta_key = "system:on_error" if is_global else f"{step_name}:on_error"
+        if is_global:
+            if not isinstance(handler, HookSpec):
+                raise TypeError("Global error hook must be a HookSpec")
+            kwargs = _resolve_injection_kwargs(
+                handler.injection_metadata,
+                state,
+                context,
+                error=error,
+                step_name=step_name,
+            )
+            func = handler.func
+        else:
+            meta_key = f"{step_name}:on_error"
+            kwargs = self._resolve_injections(
+                meta_key, state, context, error=error, step_name=step_name
+            )
+            func = handler.func if isinstance(handler, HookSpec) else handler
 
-        # If the handler is the global one but attached locally (edge case),
-        # we might need to be careful, but generally the caller decides the context.
-
-        kwargs = self._resolve_injections(
-            meta_key, state, context, error=error, step_name=step_name
-        )
-
-        if inspect.iscoroutinefunction(handler):
-            return await handler(**kwargs)
-        return handler(**kwargs)
+        if inspect.iscoroutinefunction(func):
+            return await func(**kwargs)
+        return func(**kwargs)

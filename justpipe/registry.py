@@ -10,7 +10,9 @@ from typing import (
 
 from justpipe.middleware import Middleware, tenacity_retry_middleware
 from justpipe.types import (
+    DefinitionError,
     Event,
+    HookSpec,
     Stop,
     StepInfo,
     _resolve_name,
@@ -45,9 +47,9 @@ class _PipelineRegistry:
         # Maps step name to the executable _BaseStep object
         self.steps: Dict[str, _BaseStep] = {}
         self.topology: Dict[str, List[str]] = {}
-        self.startup_hooks: List[Callable[..., Any]] = []
-        self.shutdown_hooks: List[Callable[..., Any]] = []
-        self.on_error_handler: Optional[Callable[..., Any]] = None
+        self.startup_hooks: List[HookSpec] = []
+        self.shutdown_hooks: List[HookSpec] = []
+        self.error_hook: Optional[HookSpec] = None
         self.injection_metadata: Dict[str, Dict[str, str]] = {}
         self.event_hooks: List[Callable[[Event], Event]] = []
 
@@ -58,17 +60,33 @@ class _PipelineRegistry:
         self.event_hooks.append(hook)
 
     def on_startup(self, func: Callable[..., Any]) -> Callable[..., Any]:
-        self.startup_hooks.append(func)
+        self.startup_hooks.append(
+            HookSpec(
+                func=func,
+                injection_metadata=_analyze_signature(
+                    func, self.state_type, self.context_type, expected_unknowns=0
+                ),
+            )
+        )
         return func
 
     def on_shutdown(self, func: Callable[..., Any]) -> Callable[..., Any]:
-        self.shutdown_hooks.append(func)
+        self.shutdown_hooks.append(
+            HookSpec(
+                func=func,
+                injection_metadata=_analyze_signature(
+                    func, self.state_type, self.context_type, expected_unknowns=0
+                ),
+            )
+        )
         return func
 
     def on_error(self, func: Callable[..., Any]) -> Callable[..., Any]:
-        self.on_error_handler = func
-        self.injection_metadata["system:on_error"] = _analyze_signature(
-            func, self.state_type, self.context_type, expected_unknowns=0
+        self.error_hook = HookSpec(
+            func=func,
+            injection_metadata=_analyze_signature(
+                func, self.state_type, self.context_type, expected_unknowns=0
+            ),
         )
         return func
 
@@ -77,6 +95,13 @@ class _PipelineRegistry:
         for step in self.steps.values():
             if step._wrapped_func is None:
                 step.wrap_middleware(self.middleware)
+
+    def _pop_common_step_kwargs(
+        self, kwargs: Dict[str, Any]
+    ) -> tuple[Optional[float], Union[int, Dict[str, Any]]]:
+        timeout = kwargs.pop("timeout", None)
+        retries = kwargs.pop("retries", 0)
+        return timeout, retries
 
     def _register_step(
         self,
@@ -88,6 +113,8 @@ class _PipelineRegistry:
         expected_unknowns: int = 1,
     ) -> str:
         stage_name = step_obj.name
+        if stage_name in self.steps:
+            raise DefinitionError(f"Step '{stage_name}' is already registered")
         self.steps[stage_name] = step_obj
 
         self.injection_metadata[stage_name] = _analyze_signature(
@@ -123,9 +150,7 @@ class _PipelineRegistry:
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
             stage_name = _resolve_name(name or func)
 
-            # Extract generic step kwargs
-            timeout = kwargs.pop("timeout", None)
-            retries = kwargs.pop("retries", 0)
+            timeout, retries = self._pop_common_step_kwargs(kwargs)
 
             step_obj = _StandardStep(
                 name=stage_name,
@@ -168,8 +193,7 @@ class _PipelineRegistry:
             stage_name = _resolve_name(name or func)
             target_name = _resolve_name(using)
 
-            timeout = kwargs.pop("timeout", None)
-            retries = kwargs.pop("retries", 0)
+            timeout, retries = self._pop_common_step_kwargs(kwargs)
 
             step_obj = _MapStep(
                 name=stage_name,
@@ -228,8 +252,7 @@ class _PipelineRegistry:
                         Stop if isinstance(target, _Stop) else _resolve_name(target)
                     )
 
-            timeout = kwargs.pop("timeout", None)
-            retries = kwargs.pop("retries", 0)
+            timeout, retries = self._pop_common_step_kwargs(kwargs)
 
             step_obj = _SwitchStep(
                 name=stage_name,
@@ -266,8 +289,7 @@ class _PipelineRegistry:
         def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
             stage_name = _resolve_name(name or func)
 
-            timeout = kwargs.pop("timeout", None)
-            retries = kwargs.pop("retries", 0)
+            timeout, retries = self._pop_common_step_kwargs(kwargs)
 
             step_obj = _SubPipelineStep(
                 name=stage_name,

@@ -57,3 +57,30 @@ def test_pipe_type_extraction(state: Any, context: Any) -> None:
     pipe_default: Pipe[Any, Any] = Pipe()
     st, ct = pipe_default._get_types()
     assert st is Any
+
+
+@pytest.mark.asyncio
+async def test_type_injection_with_subclass() -> None:
+    class BaseState:
+        pass
+
+    class ChildState(BaseState):
+        pass
+
+    class BaseContext:
+        pass
+
+    class ChildContext(BaseContext):
+        pass
+
+    state = ChildState()
+    context = ChildContext()
+    pipe: Pipe[ChildState, ChildContext] = Pipe[ChildState, ChildContext]()
+
+    @pipe.step
+    async def typed_step(state_obj: BaseState, context_obj: BaseContext) -> None:
+        assert state_obj is state
+        assert context_obj is context
+
+    async for _ in pipe.run(state, context):
+        pass

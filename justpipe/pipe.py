@@ -18,6 +18,7 @@ from justpipe.registry import _PipelineRegistry
 from justpipe.steps import _BaseStep
 from justpipe.types import (
     Event,
+    HookSpec,
     StepInfo,
     _Stop,
 )
@@ -56,6 +57,13 @@ class Pipe(Generic[StateT, ContextT]):
                 return args[0], args[1]
         return Any, Any
 
+    def _refresh_registry_types(self) -> None:
+        state_type, context_type = self._get_types()
+        if state_type is not Any:
+            self.registry.state_type = state_type
+        if context_type is not Any:
+            self.registry.context_type = context_type
+
     # Internal properties for introspection and runner access
     @property
     def _steps(self) -> Dict[str, _BaseStep]:
@@ -67,19 +75,19 @@ class Pipe(Generic[StateT, ContextT]):
 
     @property
     def _startup(self) -> List[Callable[..., Any]]:
-        return self.registry.startup_hooks
+        return [hook.func for hook in self.registry.startup_hooks]
 
     @property
     def _shutdown(self) -> List[Callable[..., Any]]:
-        return self.registry.shutdown_hooks
+        return [hook.func for hook in self.registry.shutdown_hooks]
 
     @property
     def _injection_metadata(self) -> Dict[str, Dict[str, str]]:
         return self.registry.injection_metadata
 
     @property
-    def _on_error(self) -> Optional[Callable[..., Any]]:
-        return self.registry.on_error_handler
+    def _error_hook(self) -> Optional[HookSpec]:
+        return self.registry.error_hook
 
     @property
     def _event_hooks(self) -> List[Callable[[Event], Event]]:
@@ -96,12 +104,15 @@ class Pipe(Generic[StateT, ContextT]):
         self.registry.add_event_hook(hook)
 
     def on_startup(self, func: Callable[..., Any]) -> Callable[..., Any]:
+        self._refresh_registry_types()
         return self.registry.on_startup(func)
 
     def on_shutdown(self, func: Callable[..., Any]) -> Callable[..., Any]:
+        self._refresh_registry_types()
         return self.registry.on_shutdown(func)
 
     def on_error(self, func: Callable[..., Any]) -> Callable[..., Any]:
+        self._refresh_registry_types()
         return self.registry.on_error(func)
 
     def step(
@@ -114,6 +125,7 @@ class Pipe(Generic[StateT, ContextT]):
         on_error: Optional[Callable[..., Any]] = None,
         **kwargs: Any,
     ) -> Callable[..., Any]:
+        self._refresh_registry_types()
         return self.registry.step(name, to, barrier_timeout, on_error, **kwargs)
 
     def map(
@@ -127,6 +139,7 @@ class Pipe(Generic[StateT, ContextT]):
         on_error: Optional[Callable[..., Any]] = None,
         **kwargs: Any,
     ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+        self._refresh_registry_types()
         return self.registry.map(name, using, to, barrier_timeout, on_error, **kwargs)
 
     def switch(
@@ -149,6 +162,7 @@ class Pipe(Generic[StateT, ContextT]):
         on_error: Optional[Callable[..., Any]] = None,
         **kwargs: Any,
     ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+        self._refresh_registry_types()
         return self.registry.switch(
             name,
             routes,
@@ -169,14 +183,15 @@ class Pipe(Generic[StateT, ContextT]):
         on_error: Optional[Callable[..., Any]] = None,
         **kwargs: Any,
     ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+        self._refresh_registry_types()
         return self.registry.sub(name, using, to, barrier_timeout, on_error, **kwargs)
 
     def graph(self) -> str:
         return generate_mermaid_graph(
             self.registry.steps,
             self.registry.topology,
-            startup_hooks=self.registry.startup_hooks,
-            shutdown_hooks=self.registry.shutdown_hooks,
+            startup_hooks=[hook.func for hook in self.registry.startup_hooks],
+            shutdown_hooks=[hook.func for hook in self.registry.shutdown_hooks],
         )
 
     def steps(self) -> Iterator[StepInfo]:
@@ -218,7 +233,7 @@ class Pipe(Generic[StateT, ContextT]):
             self.registry.injection_metadata,
             self.registry.startup_hooks,
             self.registry.shutdown_hooks,
-            on_error=self.registry.on_error_handler,
+            on_error=self.registry.error_hook,
             queue_size=queue_size if queue_size is not None else self.queue_size,
             event_hooks=self.registry.event_hooks,
         )

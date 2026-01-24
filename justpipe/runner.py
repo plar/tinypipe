@@ -19,6 +19,7 @@ from justpipe.handlers import _FailureHandler
 from justpipe.types import (
     Event,
     EventType,
+    HookSpec,
     Retry,
     Skip,
     Raise,
@@ -29,6 +30,7 @@ from justpipe.types import (
     _Run,
 )
 from justpipe.steps import _BaseStep
+from justpipe.utils import _resolve_injection_kwargs
 
 StateT = TypeVar("StateT")
 ContextT = TypeVar("ContextT")
@@ -42,9 +44,9 @@ class _PipelineRunner(Generic[StateT, ContextT]):
         steps: Dict[str, _BaseStep],
         topology: Dict[str, List[str]],
         injection_metadata: Dict[str, Dict[str, str]],
-        startup_hooks: List[Callable[..., Any]],
-        shutdown_hooks: List[Callable[..., Any]],
-        on_error: Optional[Callable[..., Any]] = None,
+        startup_hooks: List[HookSpec],
+        shutdown_hooks: List[HookSpec],
+        on_error: Optional[HookSpec] = None,
         queue_size: int = 0,
         event_hooks: Optional[List[Callable[[Event], Event]]] = None,
     ):
@@ -75,20 +77,24 @@ class _PipelineRunner(Generic[StateT, ContextT]):
         self._graph = _DependencyGraph(steps, topology)
         self._failure_handler = _FailureHandler(steps, self._invoker, self._queue)
 
+    async def _run_hooks(
+        self, hooks: List[HookSpec], stage: str
+    ) -> AsyncGenerator[Event, None]:
+        for hook in hooks:
+            try:
+                kwargs = self._resolve_hook_kwargs(hook.injection_metadata)
+                await hook.func(**kwargs)
+            except Exception as e:
+                yield Event(EventType.ERROR, stage, str(e))
+
     async def _execute_startup(self) -> Optional[Event]:
-        try:
-            for h in self._startup:
-                await h(self._context)
-        except Exception as e:
-            return Event(EventType.ERROR, "startup", str(e))
+        async for event in self._run_hooks(self._startup, "startup"):
+            return event
         return None
 
     async def _execute_shutdown(self) -> AsyncGenerator[Event, None]:
-        for h in self._shutdown:
-            try:
-                await h(self._context)
-            except Exception as e:
-                yield Event(EventType.ERROR, "shutdown", str(e))
+        async for event in self._run_hooks(self._shutdown, "shutdown"):
+            yield event
 
     async def _safe_put(self, item: Union[Event, _StepResult]) -> None:
         """Put item on queue, yielding control if queue is full to prevent deadlock."""
@@ -144,7 +150,7 @@ class _PipelineRunner(Generic[StateT, ContextT]):
     ) -> None:
         name = f"{owner}:sub"
         try:
-            async for ev in sub_pipe.run(sub_state):
+            async for ev in sub_pipe.run(sub_state, self._context):
                 ev.stage = f"{owner}:{ev.stage}"
                 await self._safe_put(ev)
             await self._safe_put(_StepResult(owner, name, None))
@@ -152,6 +158,9 @@ class _PipelineRunner(Generic[StateT, ContextT]):
             await self._failure_handler.handle_failure(
                 name, owner, None, e, self._state, self._context
             )
+
+    def _resolve_hook_kwargs(self, meta: Dict[str, str]) -> Dict[str, Any]:
+        return _resolve_injection_kwargs(meta, self._state, self._context)
 
     def _apply_event_hooks(self, event: Event) -> Event:
         """Apply all registered event hooks to transform the event."""
