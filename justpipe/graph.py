@@ -87,6 +87,9 @@ class _DependencyGraph:
             is_ready = self._completed_parents[succ] >= parents_needed
 
             if is_ready:
+                # Reset dependencies for the next iteration (crucial for retries/cycles)
+                self._completed_parents[succ].clear()
+
                 # If ready, we can start the step.
                 # Also if we were waiting for a barrier, we should cancel it.
                 # Note: Only cancel if it was potentially scheduled (parents > 1).

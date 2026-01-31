@@ -1,6 +1,8 @@
 """Builder for VisualAST from pipeline structure."""
 
+import ast
 import inspect
+import textwrap
 from typing import Any, Callable, Dict, List, Optional, Set
 
 from justpipe.visualization.ast import (
@@ -153,6 +155,22 @@ class _PipelineASTBuilder:
                         VisualEdge(source=src, target=default, label="default")
                     )
 
+        # Analyze function bodies for dynamic returns
+        for name, step_obj in steps.items():
+            if hasattr(step_obj, "original_func"):
+                dynamic_targets = cls._find_dynamic_returns(
+                    step_obj.original_func, all_nodes
+                )
+                for target in dynamic_targets:
+                    # Avoid duplicates if already explicitly connected (though label differs)
+                    existing = any(
+                        e.source == name and e.target == target for e in edges
+                    )
+                    if not existing:
+                        edges.append(
+                            VisualEdge(source=name, target=target, label="dynamic")
+                        )
+
         # Build parallel groups
         parallel_groups: List[ParallelGroup] = []
         for src, targets in topology.items():
@@ -172,3 +190,34 @@ class _PipelineASTBuilder:
             startup_hooks=startup_names,
             shutdown_hooks=shutdown_names,
         )
+
+    @staticmethod
+    def _find_dynamic_returns(
+        func: Callable[..., Any], known_steps: Set[str]
+    ) -> Set[str]:
+        """Parse function source to find return "step_name" statements."""
+        try:
+            source = inspect.getsource(func)
+            # Dedent is crucial for inner functions
+            source = textwrap.dedent(source)
+            tree = ast.parse(source)
+        except (OSError, TypeError, SyntaxError):
+            # Source not available or not parseable
+            return set()
+
+        dynamic_targets: Set[str] = set()
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Return):
+                # Check for return "literal_string"
+                if isinstance(node.value, ast.Constant):
+                    constant_val = node.value.value
+                    if isinstance(constant_val, str) and constant_val in known_steps:
+                        dynamic_targets.add(str(constant_val))
+                # Legacy python < 3.8 support
+                elif isinstance(node.value, ast.Str):
+                    str_target = node.value.s
+                    if str_target in known_steps:
+                        dynamic_targets.add(str(str_target))
+
+        return dynamic_targets

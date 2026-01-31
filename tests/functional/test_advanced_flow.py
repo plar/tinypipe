@@ -225,3 +225,51 @@ async def test_subpipeline_failure() -> None:
     errors = [e for e in events if e.type == EventType.ERROR]
     assert len(errors) > 0
     assert "Boom" in errors[0].data
+
+
+@pytest.mark.asyncio
+async def test_barrier_reset_in_cycle() -> None:
+    """
+    Regression test for the 'Running Twice' bug.
+    Ensures that when a node with multiple parents is re-executed (e.g. in a retry loop),
+    it correctly waits for ALL parents to complete again.
+    """
+    pipe: Pipe[Dict[str, int], Any] = Pipe()
+    executed_counts: Dict[str, int] = {}
+
+    @pipe.step("start", to="split")
+    async def start() -> None:
+        pass
+
+    @pipe.step("split", to=["fast", "slow"])
+    async def split() -> None:
+        pass
+
+    @pipe.step("fast", to="join")
+    async def fast() -> None:
+        await asyncio.sleep(0.01)
+
+    @pipe.step("slow", to="join")
+    async def slow() -> None:
+        await asyncio.sleep(0.05)
+
+    @pipe.step("join", to="end")
+    async def join(state: Dict[str, int]) -> Union[str, None]:
+        executed_counts["join"] = executed_counts.get("join", 0) + 1
+        if executed_counts["join"] == 1:
+            return "split"
+        return None
+
+    @pipe.step("end")
+    async def end() -> None:
+        pass
+
+    state = {"val": 0}
+    async for _ in pipe.run(state):
+        pass
+
+    # If the bug exists, 'join' would run 3 times:
+    # 1. First iteration (correctly waited for fast+slow)
+    # 2. Second iteration, prematurely triggered by 'fast' because 'slow' completion was remembered
+    # 3. Second iteration, triggered again by 'slow'
+    assert executed_counts["join"] == 2
