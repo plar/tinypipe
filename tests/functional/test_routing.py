@@ -111,3 +111,55 @@ async def test_switch_callable_returns_stop() -> None:
     # Should run without error and stop
     async for _ in pipe.run(None):
         pass
+
+
+@pytest.mark.asyncio
+async def test_dynamic_override_static() -> None:
+    """Test that returning a dynamic route prevents the static route from running."""
+    pipe: Pipe[Any, Any] = Pipe()
+    trace: List[str] = []
+
+    @pipe.step("start", to="static_next")
+    async def start(state: Any) -> _Next:
+        trace.append("start")
+        return _Next("dynamic_next")
+
+    @pipe.step("static_next")
+    async def static_next(state: Any) -> None:
+        trace.append("static_next")
+
+    @pipe.step("dynamic_next")
+    async def dynamic_next(state: Any) -> None:
+        trace.append("dynamic_next")
+
+    async for _ in pipe.run({}, start="start"):
+        pass
+
+    # Expected: start -> dynamic_next
+    # 'static_next' should be skipped because 'start' returned a dynamic route.
+    assert trace == ["start", "dynamic_next"]
+
+
+@pytest.mark.asyncio
+async def test_dynamic_override_static_raw_string() -> None:
+    """Test that returning a raw string as a dynamic route prevents the static route from running."""
+    pipe: Pipe[Any, Any] = Pipe()
+    trace: List[str] = []
+
+    @pipe.step("start", to="static_next")
+    async def start(state: Any) -> str:
+        trace.append("start")
+        return "dynamic_next"
+
+    @pipe.step("static_next")
+    async def static_next(state: Any) -> None:
+        trace.append("static_next")
+
+    @pipe.step("dynamic_next")
+    async def dynamic_next(state: Any) -> None:
+        trace.append("dynamic_next")
+
+    async for _ in pipe.run({}, start="start"):
+        pass
+
+    assert trace == ["start", "dynamic_next"]

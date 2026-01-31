@@ -230,6 +230,14 @@ class _PipelineRunner(Generic[StateT, ContextT]):
         if isinstance(res, str):
             res = _Next(res)
 
+        # Dynamic Override:
+        # If a standard step explicitly returns a next step (dynamic routing),
+        # we skip the static topology transitions for this step.
+        step = self._steps.get(item.owner)
+        if step and step.get_kind() == "step":
+            if isinstance(res, _Next) and res.stage:
+                self._skipped_owners.add(item.owner)
+
         if isinstance(res, Suspend):
             yield Event(EventType.SUSPEND, item.name, res.reason)
             self._stopping = True
