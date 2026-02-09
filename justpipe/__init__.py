@@ -1,9 +1,20 @@
 from .pipe import Pipe
 from .middleware import simple_logging_middleware
+from .testing import TestPipe, TestResult
 from .types import (
+    BarrierType,
     DefinitionError,
     Event,
     EventType,
+    FailureClassificationConfig,
+    FailureClassificationContext,
+    FailureKind,
+    FailureReason,
+    FailureRecord,
+    FailureSource,
+    FailureSourceClassifier,
+    PipelineEndData,
+    PipelineTerminalStatus,
     Raise,
     Retry,
     Skip,
@@ -15,9 +26,19 @@ from .types import (
 
 __all__ = [
     "Pipe",
+    "BarrierType",
     "simple_logging_middleware",
     "Event",
     "EventType",
+    "PipelineTerminalStatus",
+    "PipelineEndData",
+    "FailureClassificationConfig",
+    "FailureClassificationContext",
+    "FailureSourceClassifier",
+    "FailureKind",
+    "FailureSource",
+    "FailureReason",
+    "FailureRecord",
     "Suspend",
     "Stop",
     "DefinitionError",
@@ -26,4 +47,6 @@ __all__ = [
     "Raise",
     "StepContext",
     "StepInfo",
+    "TestPipe",
+    "TestResult",
 ]

@@ -1,7 +1,10 @@
 """Builder for VisualAST from pipeline structure."""
 
+import ast
 import inspect
-from typing import Any, Callable, Dict, List, Optional, Set
+import textwrap
+from typing import Any
+from collections.abc import Callable
 
 from justpipe.visualization.ast import (
     NodeKind,
@@ -10,8 +13,13 @@ from justpipe.visualization.ast import (
     VisualEdge,
     VisualNode,
 )
-from justpipe.steps import _BaseStep, _MapStep, _SwitchStep, _SubPipelineStep
-from justpipe.types import _Stop
+from justpipe._internal.definition.steps import (
+    _BaseStep,
+    _MapStep,
+    _SwitchStep,
+    _SubPipelineStep,
+)
+from justpipe.types import BarrierType
 
 
 class _PipelineASTBuilder:
@@ -20,10 +28,10 @@ class _PipelineASTBuilder:
     @classmethod
     def build(
         cls,
-        steps: Dict[str, _BaseStep],
-        topology: Dict[str, List[str]],
-        startup_hooks: Optional[List[Callable[..., Any]]] = None,
-        shutdown_hooks: Optional[List[Callable[..., Any]]] = None,
+        steps: dict[str, _BaseStep],
+        topology: dict[str, list[str]],
+        startup_hooks: list[Callable[..., Any]] | None = None,
+        shutdown_hooks: list[Callable[..., Any]] | None = None,
     ) -> VisualAST:
         """Build AST from Pipe internals."""
         # Collect hook names
@@ -31,7 +39,7 @@ class _PipelineASTBuilder:
         shutdown_names = [h.__name__ for h in (shutdown_hooks or [])]
 
         # Collect all nodes
-        all_nodes: Set[str] = set(steps.keys())
+        all_nodes: set[str] = set(steps.keys())
         for targets in topology.values():
             all_nodes.update(targets)
 
@@ -45,11 +53,11 @@ class _PipelineASTBuilder:
         streaming_nodes = {
             name
             for name, s in steps.items()
-            if inspect.isasyncgenfunction(s.original_func)
+            if inspect.isasyncgenfunction(s._original_func)
         }
 
         # Calculate all targets (nodes that are destinations)
-        all_targets: Set[str] = set()
+        all_targets: set[str] = set()
         for targets in topology.values():
             all_targets.update(targets)
         for step_obj in steps.values():
@@ -64,7 +72,7 @@ class _PipelineASTBuilder:
 
         # Terminal nodes: nodes that have no outgoing edges
         map_targets = {
-            step_obj.map_target
+            step_obj.each
             for step_obj in steps.values()
             if isinstance(step_obj, _MapStep)
         }
@@ -82,9 +90,9 @@ class _PipelineASTBuilder:
         safe_ids = {name: f"n{i}" for i, name in enumerate(sorted(all_nodes))}
 
         # Build VisualNodes
-        nodes: Dict[str, VisualNode] = {}
+        nodes: dict[str, VisualNode] = {}
         for name in all_nodes:
-            step: Optional[_BaseStep] = steps.get(name)
+            step: _BaseStep | None = steps.get(name)
 
             # Determine kind
             kind_str = step.get_kind() if step else "step"
@@ -102,14 +110,14 @@ class _PipelineASTBuilder:
 
             sub_graph = None
             if isinstance(step, _SubPipelineStep):
-                sub_pipe = step.sub_pipeline_obj
+                sub_pipe = step.pipeline
                 if sub_pipe:
                     sub_graph = cls.build(
                         sub_pipe._steps,
                         sub_pipe._topology,
                     )
 
-            node_metadata: Dict[str, Any] = {}
+            node_metadata: dict[str, Any] = {}
 
             nodes[name] = VisualNode(
                 id=safe_ids[name],
@@ -119,12 +127,13 @@ class _PipelineASTBuilder:
                 is_terminal=name in terminal_nodes,
                 is_isolated=name in isolated_nodes,
                 is_map_target=name in map_targets,
+                barrier_type=step.barrier_type if step else BarrierType.ALL,
                 metadata=node_metadata,
                 sub_graph=sub_graph,
             )
 
         # Build edges
-        edges: List[VisualEdge] = []
+        edges: list[VisualEdge] = []
 
         # Regular topology edges
         for src, targets in topology.items():
@@ -134,13 +143,13 @@ class _PipelineASTBuilder:
         # Map and switch edges from metadata
         for src, step_obj in steps.items():
             if isinstance(step_obj, _MapStep):
-                target = step_obj.map_target
+                target = step_obj.each
                 edges.append(VisualEdge(source=src, target=target, is_map_edge=True))
 
             if isinstance(step_obj, _SwitchStep):
-                if isinstance(step_obj.routes, dict):
-                    for val, route_target in step_obj.routes.items():
-                        if not isinstance(route_target, _Stop):
+                if isinstance(step_obj.to, dict):
+                    for val, route_target in step_obj.to.items():
+                        if isinstance(route_target, str):
                             edges.append(
                                 VisualEdge(
                                     source=src, target=route_target, label=str(val)
@@ -153,8 +162,24 @@ class _PipelineASTBuilder:
                         VisualEdge(source=src, target=default, label="default")
                     )
 
+        # Analyze function bodies for dynamic returns
+        for name, step_obj in steps.items():
+            if hasattr(step_obj, "_original_func"):
+                dynamic_targets = cls._find_dynamic_returns(
+                    step_obj._original_func, all_nodes
+                )
+                for target in dynamic_targets:
+                    # Avoid duplicates if already explicitly connected (though label differs)
+                    existing = any(
+                        e.source == name and e.target == target for e in edges
+                    )
+                    if not existing:
+                        edges.append(
+                            VisualEdge(source=name, target=target, label="dynamic")
+                        )
+
         # Build parallel groups
-        parallel_groups: List[ParallelGroup] = []
+        parallel_groups: list[ParallelGroup] = []
         for src, targets in topology.items():
             if len(targets) > 1:
                 parallel_groups.append(
@@ -172,3 +197,29 @@ class _PipelineASTBuilder:
             startup_hooks=startup_names,
             shutdown_hooks=shutdown_names,
         )
+
+    @staticmethod
+    def _find_dynamic_returns(
+        func: Callable[..., Any], known_steps: set[str]
+    ) -> set[str]:
+        """Parse function source to find return "step_name" statements."""
+        try:
+            source = inspect.getsource(func)
+            # Dedent is crucial for inner functions
+            source = textwrap.dedent(source)
+            tree = ast.parse(source)
+        except (OSError, TypeError, SyntaxError):
+            # Source not available or not parseable
+            return set()
+
+        dynamic_targets: set[str] = set()
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Return):
+                # Check for return "literal_string"
+                if isinstance(node.value, ast.Constant):
+                    constant_val = node.value.value
+                    if isinstance(constant_val, str) and constant_val in known_steps:
+                        dynamic_targets.add(str(constant_val))
+
+        return dynamic_targets

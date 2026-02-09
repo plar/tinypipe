@@ -4,7 +4,7 @@ from justpipe import Pipe
 from examples.utils import save_graph
 
 # 1. Define a sub-pipeline
-sub_pipe = Pipe("SubPipeline")
+sub_pipe = Pipe(name="SubPipeline")
 
 
 @sub_pipe.step("sub_step_1", to="sub_step_2")
@@ -18,7 +18,7 @@ async def sub_step_2(state):
 
 
 # 2. Define the main pipeline
-pipe = Pipe("MainPipeline")
+pipe = Pipe(name="MainPipeline")
 
 
 @pipe.step("input", to=["process_a", "process_b"])
@@ -36,7 +36,7 @@ async def process_b(state):
     pass
 
 
-@pipe.sub("sub_flow", using=sub_pipe, to="join")
+@pipe.sub("sub_flow", pipeline=sub_pipe, to="join")
 async def sub_flow(state):
     return state
 

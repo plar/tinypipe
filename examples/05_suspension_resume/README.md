@@ -25,7 +25,15 @@ You will be asked a series of questions. You must answer them, but you are **FOR
 
 If you use any of these words, the game is over!
 
-## Pipeline Graph
+## Pipeline Graph and Events
+
+When you run the game, the event stream will include:
+
+- START
+- STEP_START/STEP_END for `Ask Question` and `Check Answer`
+- SUSPEND while waiting for a response
+- After resume: the next steps based on the answer
+- FINISH (status will be `success` or `runtime_failed` if a step errors)
 
 ```mermaid
 graph TD

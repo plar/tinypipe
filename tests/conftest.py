@@ -1,12 +1,12 @@
 import pytest
-from typing import List, Any
+from typing import Any
 
 
 class MyState:
     def __init__(self) -> None:
         self.val = 0
         self.ok = False
-        self.data: List[Any] = []
+        self.data: list[Any] = []
 
 
 class MyContext:

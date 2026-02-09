@@ -4,7 +4,7 @@ This example demonstrates how to compose pipelines by running one pipeline insid
 
 ## Key Concepts
 
-1.  **`@pipe.sub(using=sub_pipe)`**: This decorator registers a step that executes a sub-pipeline.
+1.  **`@pipe.sub(pipeline=sub_pipe)`**: This decorator registers a step that executes a sub-pipeline.
 2.  **State Adaptation**: The decorated function receives the parent's state and returns the state object to be passed to the sub-pipeline.
 3.  **Shared State**: If both pipelines use the same state, the function can simply return the received state.
 4.  **Event Namespacing**: Events from the sub-pipeline are automatically namespaced (e.g., `parent_step:child_step`).

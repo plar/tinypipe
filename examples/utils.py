@@ -1,9 +1,8 @@
 import os
 from pathlib import Path
-from typing import Optional, Union
 
 
-def get_api_key(env_var: str) -> Optional[str]:
+def get_api_key(env_var: str) -> str | None:
     """
     Retrieve an API key from environment variables.
     If not found, print a warning and return None.
@@ -17,7 +16,7 @@ def get_api_key(env_var: str) -> Optional[str]:
     return key
 
 
-def save_graph(pipe, filename: Union[str, Path]) -> None:
+def save_graph(pipe, filename: str | Path) -> None:
     """
     Generate and save the Mermaid graph for the given pipe.
     """

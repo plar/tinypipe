@@ -1,6 +1,7 @@
 """Pipeline visualization using AST-based rendering."""
 
-from typing import Any, Callable, Dict, List, Optional
+from typing import Any
+from collections.abc import Callable
 
 from justpipe.visualization.ast import (
     NodeKind,
@@ -11,44 +12,56 @@ from justpipe.visualization.ast import (
 )
 from justpipe.visualization.builder import _PipelineASTBuilder
 from justpipe.visualization.mermaid import _MermaidRenderer, MermaidTheme
-from justpipe.steps import _BaseStep
+from justpipe.visualization.renderer import GraphRenderer
+from justpipe._internal.definition.steps import _BaseStep
+
+
+class MermaidRenderer(GraphRenderer):
+    """Default Mermaid.js renderer implementation."""
+
+    def __init__(self, theme: MermaidTheme | None = None, direction: str = "TD"):
+        self.theme = theme
+        self.direction = direction
+
+    def render(
+        self,
+        steps: dict[str, _BaseStep],
+        topology: dict[str, list[str]],
+        startup_hooks: list[Callable[..., Any]] | None = None,
+        shutdown_hooks: list[Callable[..., Any]] | None = None,
+    ) -> str:
+        effective_theme = self.theme or MermaidTheme(direction=self.direction)
+        ast = _PipelineASTBuilder.build(
+            steps,
+            topology,
+            startup_hooks=startup_hooks,
+            shutdown_hooks=shutdown_hooks,
+        )
+        renderer = _MermaidRenderer(ast, effective_theme)
+        return renderer.render()
 
 
 def generate_mermaid_graph(
-    steps: Dict[str, _BaseStep],
-    topology: Dict[str, List[str]],
-    startup_hooks: Optional[List[Callable[..., Any]]] = None,
-    shutdown_hooks: Optional[List[Callable[..., Any]]] = None,
+    steps: dict[str, _BaseStep],
+    topology: dict[str, list[str]],
+    startup_hooks: list[Callable[..., Any]] | None = None,
+    shutdown_hooks: list[Callable[..., Any]] | None = None,
     *,
-    theme: Optional[MermaidTheme] = None,
+    theme: MermaidTheme | None = None,
     direction: str = "TD",
 ) -> str:
     """
-    Generate a Mermaid diagram from the pipeline structure.
-
-    Args:
-        steps: Map of registered step objects (BaseStep).
-        topology: Map of static execution paths.
-        startup_hooks: Optional list of startup hook functions.
-        shutdown_hooks: Optional list of shutdown hook functions.
-        theme: Optional MermaidTheme for custom styling.
-        direction: Graph direction (default: TD).
-
-    Returns:
-        A Mermaid.js diagram string.
+    Convenience function to generate a Mermaid diagram.
     """
-    effective_theme = theme or MermaidTheme(direction=direction)
-    ast = _PipelineASTBuilder.build(
-        steps,
-        topology,
-        startup_hooks=startup_hooks,
-        shutdown_hooks=shutdown_hooks,
-    )
-    renderer = _MermaidRenderer(ast, effective_theme)
-    return renderer.render()
+    renderer = MermaidRenderer(theme=theme, direction=direction)
+    return renderer.render(steps, topology, startup_hooks, shutdown_hooks)
 
 
 __all__ = [
+    # Protocols
+    "GraphRenderer",
+    # Implementation
+    "MermaidRenderer",
     # AST model
     "VisualAST",
     "VisualNode",

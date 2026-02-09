@@ -1,9 +1,9 @@
 """Mermaid.js renderer for pipeline visualization."""
 
 from dataclasses import dataclass
-from typing import List, Optional, Set
 
 from justpipe.visualization.ast import NodeKind, VisualAST, VisualNode
+from justpipe.types import BarrierType
 
 
 @dataclass
@@ -51,7 +51,7 @@ class MermaidTheme:
         """Render the Mermaid graph header."""
         return f"graph {self.direction}"
 
-    def render_styles(self) -> List[str]:
+    def render_styles(self) -> list[str]:
         """Render Mermaid class definitions."""
         return [
             "%% Styling",
@@ -69,10 +69,10 @@ class MermaidTheme:
 class _MermaidRenderer:
     """Renders VisualAST to Mermaid.js string."""
 
-    def __init__(self, ast: VisualAST, theme: Optional[MermaidTheme] = None):
+    def __init__(self, ast: VisualAST, theme: MermaidTheme | None = None):
         self.ast = ast
         self.theme = theme or MermaidTheme()
-        self.lines: List[str] = [self.theme.render_header()]
+        self.lines: list[str] = [self.theme.render_header()]
 
     def render(self) -> str:
         """Generate complete Mermaid diagram."""
@@ -101,6 +101,9 @@ class _MermaidRenderer:
     ) -> str:
         """Render node with kind-specific shape."""
         label = self._format_label(node.name)
+        if node.barrier_type == BarrierType.ANY:
+            label = f"{label} (Any)"
+
         node_id = f"{id_prefix}{node.id}"
 
         if node.is_map_target:
@@ -124,14 +127,14 @@ class _MermaidRenderer:
             node_def += ":::isolated"
         return node_def
 
-    def _get_grouped_nodes(self, ast: VisualAST) -> Set[str]:
+    def _get_grouped_nodes(self, ast: VisualAST) -> set[str]:
         """Get all nodes that are part of parallel groups."""
-        grouped: Set[str] = set()
+        grouped: set[str] = set()
         for group in ast.parallel_groups:
             grouped.update(group.node_ids)
         return grouped
 
-    def _get_isolated_nodes(self, ast: VisualAST) -> Set[str]:
+    def _get_isolated_nodes(self, ast: VisualAST) -> set[str]:
         """Get all isolated nodes."""
         return {name for name, node in ast.nodes.items() if node.is_isolated}
 
@@ -222,8 +225,8 @@ class _MermaidRenderer:
         ast: VisualAST,
         prefix: str,
         indent: int,
-        grouped: Set[str],
-        isolated: Set[str],
+        grouped: set[str],
+        isolated: set[str],
     ) -> None:
         self.lines.append("")
         for name in sorted(ast.nodes.keys()):
@@ -236,7 +239,7 @@ class _MermaidRenderer:
         ast: VisualAST,
         prefix: str,
         indent: int,
-        end_source_id: Optional[str],
+        end_source_id: str | None,
     ) -> None:
         if ast.shutdown_hooks and end_source_id:
             last_hook_id = None
@@ -277,7 +280,7 @@ class _MermaidRenderer:
                 self._add(f"{src_id} --> {tgt_id}", indent)
 
     def _render_isolated_nodes(
-        self, ast: VisualAST, prefix: str, indent: int, isolated: Set[str]
+        self, ast: VisualAST, prefix: str, indent: int, isolated: set[str]
     ) -> None:
         if isolated:
             self.lines.append("")
@@ -316,12 +319,12 @@ class _MermaidRenderer:
 
     def _apply_classes(self, ast: VisualAST, prefix: str) -> None:
         """Generate class assignments for nodes."""
-        step_ids: List[str] = []
-        streaming_ids: List[str] = []
-        map_ids: List[str] = []
-        switch_ids: List[str] = []
-        sub_ids: List[str] = []
-        isolated_ids: List[str] = []
+        step_ids: list[str] = []
+        streaming_ids: list[str] = []
+        map_ids: list[str] = []
+        switch_ids: list[str] = []
+        sub_ids: list[str] = []
+        isolated_ids: list[str] = []
 
         for name, node in ast.nodes.items():
             full_id = f"{prefix}{node.id}"

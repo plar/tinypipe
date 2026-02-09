@@ -1,7 +1,7 @@
 import asyncio
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Dict, Any
+from typing import Any
 from justpipe import Pipe, EventType
 from examples.utils import save_graph
 
@@ -14,10 +14,10 @@ class State:
 @dataclass
 class Context:
     # Context is a great place for resources like DB connections or API clients
-    db: Dict[str, Any] = field(default_factory=dict)
+    db: dict[str, Any] = field(default_factory=dict)
 
 
-pipe = Pipe[State, Context]()
+pipe = Pipe(State, Context)
 
 
 # 1. Register a startup hook
@@ -51,7 +51,7 @@ async def main():
 
     async for event in pipe.run(state, context):
         if event.type == EventType.FINISH:
-            print("Pipeline finished.")
+            print(f"Pipeline finished with status={event.payload.status.value}")
 
     save_graph(pipe, Path(__file__).parent / "pipeline.mmd")
 

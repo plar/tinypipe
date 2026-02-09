@@ -22,6 +22,7 @@ Branch A finished: 20
 Branch B finished: 32
 Combined result: 52
 >>> Result: 52
+Finished with status: success
 Graph saved to .../pipeline.mmd
 ```
 

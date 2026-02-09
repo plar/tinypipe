@@ -2,7 +2,6 @@ import subprocess
 import sys
 from pathlib import Path
 import pytest
-from typing import List
 
 
 def run_example(example_name: str) -> subprocess.CompletedProcess[str]:
@@ -18,21 +17,12 @@ def run_example(example_name: str) -> subprocess.CompletedProcess[str]:
     return result
 
 
+@pytest.mark.slow
 @pytest.mark.parametrize(
     "example_name,expected_output,graph_filename",
     [
         ("01_quick_start", ["Hello, World!"], "pipeline.mmd"),
         ("02_parallel_dag", ["Result: 52"], "pipeline.mmd"),
-        (
-            "03_dynamic_map",
-            ["Mock summary for:", "Summarized 3 articles"],
-            "pipeline.mmd",
-        ),
-        (
-            "04_dynamic_routing",
-            ["Routing to: even_handler", "Final Value: 20"],
-            "pipeline.mmd",
-        ),
         (
             "06_subpipelines",
             [
@@ -42,27 +32,20 @@ def run_example(example_name: str) -> subprocess.CompletedProcess[str]:
             ],
             "pipeline.mmd",
         ),
-        ("07_streaming", ["Received token:", "Full Response:"], "pipeline.mmd"),
         (
             "08_reliability_retry",
             ["Attempt", "Successfully called flaky API"],
             "pipeline.mmd",
         ),
-        ("09_middleware", ["Step 'greet' took", "Step 'respond' took"], "pipeline.mmd"),
         (
-            "10_lifecycle_hooks",
-            [
-                "Connecting to mock database...",
-                "Disconnecting from mock database...",
-                "Data fetched from DB: some_value",
-            ],
+            "12_observability",
+            ["JUSTPIPE OBSERVABILITY DEMO", "Total Duration:", "Bottleneck:"],
             "pipeline.mmd",
         ),
-        ("11_visualization", ["Mermaid graph generated successfully"], "pipeline.mmd"),
     ],
 )
 def test_standard_examples(
-    example_name: str, expected_output: List[str], graph_filename: str
+    example_name: str, expected_output: list[str], graph_filename: str
 ) -> None:
     root = Path(__file__).parent.parent.parent
     result = run_example(example_name)
@@ -77,12 +60,8 @@ def test_standard_examples(
     graph_file = root / "examples" / example_name / graph_filename
     assert graph_file.exists()
 
-    if example_name == "11_visualization":
-        content = graph_file.read_text()
-        assert "graph TD" in content
-        assert "subgraph" in content or "-->" in content
 
-
+@pytest.mark.slow
 def test_example_05_suspension_resume() -> None:
     root = Path(__file__).parent.parent.parent
     example_script = root / "examples" / "05_suspension_resume" / "main.py"

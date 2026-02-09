@@ -1,7 +1,6 @@
 import asyncio
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List
 from justpipe import Pipe, EventType
 from examples.utils import save_graph
 
@@ -9,12 +8,12 @@ from examples.utils import save_graph
 @dataclass
 class State:
     topic: str = ""
-    facts: List[str] = field(default_factory=list)
+    facts: list[str] = field(default_factory=list)
     report: str = ""
 
 
 # --- Sub-Pipeline: Researcher ---
-research_pipe = Pipe[State, None]("Researcher")
+research_pipe = Pipe(State, name="Researcher")
 
 
 @research_pipe.step("gather_facts")
@@ -27,7 +26,7 @@ async def gather_facts(state: State):
 
 
 # --- Main Pipeline: Editor ---
-main_pipe = Pipe[State, None]("Editor")
+main_pipe = Pipe(State, name="Editor")
 
 
 @main_pipe.step("assign_topic", to="delegate_research")
@@ -36,7 +35,7 @@ async def assign_topic(state: State):
     print(f"[Editor] Assigned topic: {state.topic}")
 
 
-@main_pipe.sub("delegate_research", using=research_pipe, to="draft_report")
+@main_pipe.sub("delegate_research", pipeline=research_pipe, to="draft_report")
 async def delegate_research(state: State):
     print("[Editor] Delegating to Researcher pipeline...")
     # Pass the state through to the sub-pipeline

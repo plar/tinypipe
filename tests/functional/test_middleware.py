@@ -1,32 +1,63 @@
 import pytest
 from unittest.mock import patch
-from typing import Any, Callable, Dict, List
+from typing import Any
+from collections.abc import Callable
 from justpipe import Pipe, simple_logging_middleware, StepContext
 
 
+@pytest.mark.parametrize(
+    ("step_name", "step_kind"),
+    [
+        ("test", "async"),
+        ("stream", "stream"),
+        ("sync_step", "sync"),
+    ],
+)
 @pytest.mark.asyncio
-async def test_simple_logging_middleware_integration() -> None:
+async def test_simple_logging_middleware_logs_duration(
+    step_name: str,
+    step_kind: str,
+) -> None:
+    # Arrange
     pipe: Pipe[Any, Any] = Pipe()
     pipe.add_middleware(simple_logging_middleware)
 
-    @pipe.step("test")
-    async def test() -> None:
-        pass
+    if step_kind == "async":
 
+        @pipe.step(step_name)
+        async def test_step() -> None:
+            return None
+
+    elif step_kind == "stream":
+
+        @pipe.step(step_name)
+        async def test_step() -> Any:
+            yield 1
+            yield 2
+
+    else:
+
+        @pipe.step(step_name)
+        def test_step() -> None:
+            return None
+
+    _ = test_step
+
+    # Act
     with patch("logging.Logger.debug") as mock_debug:
         async for _ in pipe.run({}):
             pass
 
-        mock_debug.assert_called()
-        # Verify it contains the step name and execution time
-        args, _ = mock_debug.call_args
-        assert "Step 'test' took" in args[0]
+    # Assert
+    mock_debug.assert_called()
+    args, _ = mock_debug.call_args
+    assert f"Step '{step_name}' took" in args[0]
 
 
 @pytest.mark.asyncio
 async def test_middleware_application() -> None:
     pipe: Pipe[Any, Any] = Pipe()
-    log: List[str] = []
+    log: list[str] = []
 
     def logging_middleware(
         func: Callable[..., Any], ctx: StepContext
@@ -53,7 +84,7 @@ async def test_middleware_application() -> None:
 
 def test_middleware_kwargs_passing() -> None:
     pipe: Pipe[Any, Any] = Pipe()
-    captured_ctx: Dict[str, Any] = {}
+    captured_ctx: dict[str, Any] = {}
 
     def capture_middleware(
         func: Callable[..., Any], ctx: StepContext
@@ -79,7 +110,7 @@ def test_middleware_kwargs_passing() -> None:
 @pytest.mark.asyncio
 async def test_middleware_chaining() -> None:
     pipe: Pipe[Any, Any] = Pipe()
-    order: List[int] = []
+    order: list[int] = []
 
     def mw1(func: Callable[..., Any], ctx: StepContext) -> Callable[..., Any]:
         async def w(*a: Any, **k: Any) -> Any:
@@ -116,7 +147,7 @@ async def test_retry_middleware_integration() -> None:
     pipe: Pipe[Any, Any] = Pipe()
     attempts = 0
 
-    @pipe.step("fail_twice", retries=2, retry_wait_min=0.01)
+    @pipe.step("fail_twice", retries=2, retry_wait_min=0.01, retry_wait_max=0.01)
     async def fail_twice() -> None:
         nonlocal attempts
         attempts += 1
@@ -172,37 +203,29 @@ async def test_retry_with_dict_config() -> None:
 
 
 @pytest.mark.asyncio
-async def test_simple_logging_middleware_generator() -> None:
+async def test_add_middleware_after_first_run_raises() -> None:
     pipe: Pipe[Any, Any] = Pipe()
-    pipe.add_middleware(simple_logging_middleware)
+    order: list[str] = []
 
-    @pipe.step("stream")
-    async def stream() -> Any:
-        yield 1
-        yield 2
+    def mw1(func: Callable[..., Any], ctx: StepContext) -> Callable[..., Any]:
+        _ = ctx
 
-    with patch("logging.Logger.debug") as mock_debug:
-        async for _ in pipe.run({}):
-            pass
+        async def wrapped(**kwargs: Any) -> Any:
+            order.append("mw1")
+            return await func(**kwargs)
 
-        mock_debug.assert_called()
-        args, _ = mock_debug.call_args
-        assert "Step 'stream' took" in args[0]
+        return wrapped
 
+    pipe.add_middleware(mw1)
 
-@pytest.mark.asyncio
-async def test_simple_logging_middleware_sync_step() -> None:
-    pipe: Pipe[Any, Any] = Pipe()
-    pipe.add_middleware(simple_logging_middleware)
+    @pipe.step("test")
+    async def test() -> None:
+        order.append("step")
 
-    @pipe.step("sync_step")
-    def sync_step() -> None:
-        return None
+    # First run: only mw1 is configured.
+    async for _ in pipe.run({}):
+        pass
+    assert order == ["mw1", "step"]
 
-    with patch("logging.Logger.debug") as mock_debug:
-        async for _ in pipe.run({}):
-            pass
-
-        mock_debug.assert_called()
-        args, _ = mock_debug.call_args
-        assert "Step 'sync_step' took" in args[0]
+    with pytest.raises(RuntimeError, match="frozen after first run"):
+        pipe.add_middleware(mw1)

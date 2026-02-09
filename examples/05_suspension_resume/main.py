@@ -3,7 +3,6 @@ import sys
 from dataclasses import dataclass, field
 from enum import Enum
 from pathlib import Path
-from typing import List
 from justpipe import Pipe, EventType, Suspend
 from examples.utils import save_graph
 
@@ -15,7 +14,7 @@ class Result(Enum):
 
 @dataclass
 class GameState:
-    questions: List[str] = field(
+    questions: list[str] = field(
         default_factory=lambda: [
             "Is the sky blue?",
             "Is coal white?",
@@ -30,7 +29,7 @@ class GameState:
     error_message: str = ""
 
 
-pipe = Pipe[GameState, None]()
+pipe = Pipe(GameState)
 
 
 @pipe.step("ask_question")
@@ -49,7 +48,7 @@ async def ask_question(state: GameState):
 
 @pipe.switch(
     "check_answer",
-    routes={
+    to={
         Result.CORRECT: "ask_question",
         Result.FORBIDDEN: "game_over",
     },
@@ -99,8 +98,8 @@ async def main():
                 # Resume from the next logical step
                 current_step = "check_answer"
 
-            elif event.type == EventType.ERROR:
-                print(f"Pipeline Error: {event.data}")
+            elif event.type == EventType.STEP_ERROR:
+                print(f"Pipeline Error: {event.payload}")
                 state.is_game_over = True
 
     save_graph(pipe, Path(__file__).parent / "pipeline.mmd")

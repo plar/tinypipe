@@ -33,6 +33,7 @@ Received token: '...'
 Received token: ' '
 ...
 Full Response: Thinking... Life is complexity.
+Finished with status: success
 Graph saved to ...
 ```
 

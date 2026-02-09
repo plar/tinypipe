@@ -1,5 +1,5 @@
 .python-version
-PRD.md
+PRD*.md
 .coverage
 __pycache__/
 *.egg-info/
@@ -11,6 +11,11 @@ build/
 .venv/
 .gemini/
 .claude/
+.hypothesis/
+*timeline.txt
+.mutmut-cache
+mutants/
+.uv_cache/
 
 # Local conductor files
 conductor/
