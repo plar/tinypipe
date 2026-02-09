@@ -1,0 +1,8 @@
+{
+  "track_id": "relocate_utility_logic_20260204",
+  "type": "refactor",
+  "status": "new",
+  "created_at": "2026-02-04T12:00:00Z",
+  "updated_at": "2026-02-04T12:00:00Z",
+  "description": "Relocate _resolve_name to _utils.py and decouple logic from types.py."
+}

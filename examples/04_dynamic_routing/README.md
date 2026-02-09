@@ -5,8 +5,8 @@ This example demonstrates how to use the `@pipe.switch` decorator to route execu
 ## Key Concepts
 
 1.  **Declarative Routing**: Use `@pipe.switch` to map return values to step names (or functions).
-2.  **`routes` parameter**: A dictionary mapping values (e.g., `EVEN`/`ODD`, strings, bools, enums) to target steps.
-3.  **Callable Routes**: You can also pass a function to `routes` for more complex logic (`routes=lambda x: ...`).
+2.  **`to` parameter**: A dictionary mapping values (e.g., `EVEN`/`ODD`, strings, bools, enums) to target steps.
+3.  **Callable Routes**: You can also pass a function to `to` for more complex logic (`to=lambda x: ...`).
 4.  **Branching**: Creating multiple paths in your graph that are only executed under certain conditions.
 
 ## How to Run

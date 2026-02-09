@@ -1,0 +1,8 @@
+{
+  "track_id": "standardize_imports_20260204",
+  "type": "refactor",
+  "status": "new",
+  "created_at": "2026-02-04T12:00:00Z",
+  "updated_at": "2026-02-04T12:00:00Z",
+  "description": "Standardize TYPE_CHECKING guards and modern annotations across core engine files."
+}

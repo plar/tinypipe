@@ -1,6 +1,6 @@
 import pytest
 from typing import Any
-from justpipe import Pipe
+from justpipe import DefinitionError, Pipe
 
 
 def test_steps_empty_pipe() -> None:
@@ -63,7 +63,7 @@ def test_steps_map_kind() -> None:
     async def worker(item: Any) -> None:
         pass
 
-    @pipe.map("producer", using=worker)
+    @pipe.map("producer", each=worker)
     async def producer() -> list[int]:
         return [1, 2, 3]
 
@@ -84,7 +84,7 @@ def test_steps_switch_kind() -> None:
     async def path_b() -> None:
         pass
 
-    @pipe.switch("router", routes={"a": path_a, "b": path_b}, default=path_a)
+    @pipe.switch("router", to={"a": path_a, "b": path_b}, default=path_a)
     async def router() -> str:
         return "a"
 
@@ -165,31 +165,22 @@ def test_topology_is_copy() -> None:
     assert pipe.topology["first"] == ["second"]
 
 
-def test_validate_on_run_disabled_by_default() -> None:
-    # Introspection test, doesn't need to run pipe
-    pipe: Pipe[Any, Any] = Pipe()
-    # Accessing private attribute to verify default
-    assert pipe._validate_on_run is False
-
-
 @pytest.mark.asyncio
-async def test_validate_on_run_enabled() -> None:
-    pipe: Pipe[Any, Any] = Pipe(validate_on_run=True)
+async def test_run_validation_always_enabled_unknown_target() -> None:
+    pipe: Pipe[Any, Any] = Pipe()
 
     @pipe.step("first", to="nonexistent")
     async def first() -> None:
         pass
 
-    # With validate_on_run=True, validation happens before running
-    # We expect ValueError because "nonexistent" target is unknown
-    with pytest.raises(ValueError, match="targets unknown step"):
+    with pytest.raises(DefinitionError, match="targets unknown step 'nonexistent'"):
         async for _ in pipe.run({}):
             pass
 
 
 @pytest.mark.asyncio
-async def test_validate_on_run_valid_pipe() -> None:
-    pipe: Pipe[Any, Any] = Pipe(validate_on_run=True)
+async def test_run_validation_always_enabled_valid_pipe() -> None:
+    pipe: Pipe[Any, Any] = Pipe()
 
     @pipe.step("first", to="second")
     async def first() -> None:
@@ -204,3 +195,20 @@ async def test_validate_on_run_valid_pipe() -> None:
         events.append(event)
 
     assert len(events) > 0
+
+
+@pytest.mark.asyncio
+async def test_run_validation_fails_no_entry_cycle() -> None:
+    pipe: Pipe[Any, Any] = Pipe()
+
+    @pipe.step("a", to="b")
+    async def step_a() -> None:
+        pass
+
+    @pipe.step("b", to="a")
+    async def step_b() -> None:
+        pass
+
+    with pytest.raises(DefinitionError, match="no entry points found"):
+        async for _ in pipe.run({}):
+            pass

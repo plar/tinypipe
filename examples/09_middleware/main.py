@@ -51,7 +51,7 @@ def timing_middleware(func: Callable[..., Any], ctx: StepContext) -> Callable[..
     return wrapped
 
 
-pipe = Pipe[None, None]()
+pipe = Pipe()  # no state, no context
 
 # 2. Add the middleware to the pipeline
 pipe.add_middleware(timing_middleware)
@@ -80,9 +80,9 @@ async def main():
     async for event in pipe.run(None):
         if event.type == EventType.TOKEN:
             if HAS_RICH:
-                console.print(f"[bold yellow]Token:[/bold yellow] {event.data}")
+                console.print(f"[bold yellow]Token:[/bold yellow] {event.payload}")
             else:
-                print(f"Token: {event.data}")
+                print(f"Token: {event.payload}")
 
     save_graph(pipe, Path(__file__).parent / "pipeline.mmd")
 

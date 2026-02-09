@@ -17,7 +17,7 @@ class State:
     message: str = ""
 
 
-pipe = Pipe[State, None]()
+pipe = Pipe(State)
 
 
 @pipe.step("even_handler")
@@ -33,7 +33,7 @@ async def odd_handler(state: State):
 
 
 @pipe.switch(
-    routes={
+    to={
         NumberType.EVEN: even_handler,
         NumberType.ODD: "odd_handler",  # str step name works too
     },
@@ -62,6 +62,7 @@ async def main():
         if event.type == EventType.FINISH:
             print(f"Final Value: {state_even.value}")
             print(f"Message: {state_even.message}")
+            print(f"Status: {event.payload.status.value}")
 
     # Example 2: Odd value
     state_odd = State(value=7)
@@ -70,6 +71,7 @@ async def main():
         if event.type == EventType.FINISH:
             print(f"Final Value: {state_odd.value}")
             print(f"Message: {state_odd.message}")
+            print(f"Status: {event.payload.status.value}")
 
     save_graph(pipe, Path(__file__).parent / "pipeline.mmd")
 

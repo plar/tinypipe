@@ -17,16 +17,25 @@ classifiers = [
     "Typing :: Typed",
 ]
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "click>=8.0.0",
+    "rich>=13.0.0",
+]
 
 [project.urls]
 Homepage = "https://github.com/plar/justpipe"
 Repository = "https://github.com/plar/justpipe"
 Issues = "https://github.com/plar/justpipe/issues"
 
+[project.scripts]
+justpipe = "justpipe.cli.main:main"
+
 [project.optional-dependencies]
 retry = [
     "tenacity>=9.1.2",
+]
+observability = [
+    "aiosqlite>=0.19.0",
 ]
 examples = [
     "openai>=1.0.0",
@@ -44,23 +53,45 @@ source = "vcs"
 [dependency-groups]
 dev = [
     "mypy>=1.8.0",
+    "mutmut>=2.5.1",
     "pytest>=8.0",
     "pytest-asyncio>=0.23",
+    "pytest-benchmark>=5.1.0",
     "pytest-cov>=7.0.0",
     "ruff>=0.1.0",
     "coverage-badge>=1.1.0",
     "pytest-repeat>=0.9.4",
+    "hypothesis>=6.151.4",
 ]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+markers = [
+    "slow: optional long-running correctness tests",
+]
 
 [tool.ruff]
 line-length = 88
 target-version = "py312"
+exclude = ["examples/"]
 
 [tool.mypy]
 python_version = "3.12"
 strict = true
 exclude = ["examples/"]
+
+[[tool.mypy.overrides]]
+module = "aiosqlite"
+ignore_missing_imports = true
+
+[tool.mutmut]
+tests_dir = ["tests"]
+pytest_add_cli_args = ["-q"]
+also_copy = ["justpipe", "examples"]
+paths_to_mutate = [
+    "justpipe/_internal/definition/type_resolver.py",
+    "justpipe/_internal/runtime/engine/pipeline_runner.py",
+    "justpipe/visualization/builder.py",
+]
+pytest_add_cli_args_test_selection = ["tests/unit", "tests/functional", "tests/integration"]

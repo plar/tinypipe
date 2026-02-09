@@ -2,7 +2,10 @@
 
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, Dict, List, Optional
+from typing import Any
+
+
+from justpipe.types import BarrierType
 
 
 class NodeKind(Enum):
@@ -26,8 +29,9 @@ class VisualNode:
     is_terminal: bool = False
     is_isolated: bool = False
     is_map_target: bool = False
-    metadata: Dict[str, Any] = field(default_factory=dict)
-    sub_graph: Optional["VisualAST"] = None
+    barrier_type: BarrierType = BarrierType.ALL
+    metadata: dict[str, Any] = field(default_factory=dict)
+    sub_graph: "VisualAST | None" = None
 
 
 @dataclass
@@ -36,7 +40,7 @@ class VisualEdge:
 
     source: str
     target: str
-    label: Optional[str] = None
+    label: str | None = None
     is_map_edge: bool = False
 
 
@@ -46,15 +50,15 @@ class ParallelGroup:
 
     id: str
     source_id: str
-    node_ids: List[str]
+    node_ids: list[str]
 
 
 @dataclass
 class VisualAST:
     """Semantic representation of pipeline structure."""
 
-    nodes: Dict[str, VisualNode]
-    edges: List[VisualEdge]
-    parallel_groups: List[ParallelGroup]
-    startup_hooks: List[str] = field(default_factory=list)
-    shutdown_hooks: List[str] = field(default_factory=list)
+    nodes: dict[str, VisualNode]
+    edges: list[VisualEdge]
+    parallel_groups: list[ParallelGroup]
+    startup_hooks: list[str] = field(default_factory=list)
+    shutdown_hooks: list[str] = field(default_factory=list)

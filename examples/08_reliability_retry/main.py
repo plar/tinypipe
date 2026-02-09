@@ -11,7 +11,7 @@ class State:
     success: bool = False
 
 
-pipe = Pipe[State, None]()
+pipe = Pipe(State)
 
 # Simulated flaky API state
 _api_calls = 0
@@ -38,8 +38,8 @@ async def main():
 
     print("Running pipeline with automatic retries...")
     async for event in pipe.run(state):
-        if event.type == EventType.ERROR:
-            print(f"Pipeline Error: {event.data}")
+        if event.type == EventType.STEP_ERROR:
+            print(f"Pipeline Error: {event.payload}")
 
     if state.success:
         print(f"\nSuccessfully called flaky API after {state.attempts} attempts.")

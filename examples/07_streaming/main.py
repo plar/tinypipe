@@ -25,7 +25,7 @@ class Context:
     client: Any = None
 
 
-pipe = Pipe[State, Context]()
+pipe = Pipe(State, Context)
 
 
 @pipe.on_startup
@@ -86,7 +86,7 @@ async def main():
     print("--- Streaming Chatbot ---")
     async for event in pipe.run(state, context):
         if event.type == EventType.TOKEN:
-            print(f"Received token: {event.data!r}")
+            print(f"Received token: {event.payload!r}")
 
     print(f"\nFull Response: {state.response}")
     save_graph(pipe, Path(__file__).parent / "pipeline.mmd")

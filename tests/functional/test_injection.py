@@ -1,7 +1,7 @@
 """Functional tests for dependency injection."""
 
 import pytest
-from typing import Any, Dict
+from typing import Any
 from justpipe import Pipe
 
 
@@ -14,10 +14,12 @@ async def test_smart_injection_fallbacks(
     pipe: Pipe[Any, Any] = Pipe()
 
     # Use exec to create a function with exact parameter names
-    ldict: Dict[str, Any] = {}
+    ldict: dict[str, Any] = {}
     code = f"""
-async def dynamic_step({state_arg}, {ctx_arg}): 
-    return {state_arg}, {ctx_arg}
+async def dynamic_step({state_arg}, {ctx_arg}):
+    # Just verify injection works - no return needed
+    assert {state_arg} is not None
+    assert {ctx_arg} is not None
 """
     exec(code, globals(), ldict)
     func = ldict["dynamic_step"]
@@ -34,7 +36,7 @@ async def dynamic_step({state_arg}, {ctx_arg}):
 async def test_type_aware_injection(state: Any, context: Any) -> None:
     state_type = type(state)
     context_type = type(context)
-    pipe = Pipe[state_type, context_type]()  # type: ignore
+    pipe = Pipe(state_type, context_type)
 
     @pipe.step
     async def typed_step(ctx: Any, s: Any) -> None:
@@ -43,20 +45,6 @@ async def test_type_aware_injection(state: Any, context: Any) -> None:
 
     async for _ in pipe.run(state, context):
         pass
-
-
-def test_pipe_type_extraction(state: Any, context: Any) -> None:
-    state_type = type(state)
-    context_type = type(context)
-
-    pipe = Pipe[state_type, context_type]()  # type: ignore
-    st, ct = pipe._get_types()
-    assert st is state_type
-    assert ct is context_type
-
-    pipe_default: Pipe[Any, Any] = Pipe()
-    st, ct = pipe_default._get_types()
-    assert st is Any
 
 
 @pytest.mark.asyncio
@@ -75,7 +63,7 @@ async def test_type_injection_with_subclass() -> None:
 
     state = ChildState()
     context = ChildContext()
-    pipe: Pipe[ChildState, ChildContext] = Pipe[ChildState, ChildContext]()
+    pipe = Pipe(ChildState, ChildContext)
 
     @pipe.step
     async def typed_step(state_obj: BaseState, context_obj: BaseContext) -> None:

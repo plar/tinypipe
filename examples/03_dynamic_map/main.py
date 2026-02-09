@@ -1,7 +1,7 @@
 import asyncio
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import List, Any
+from typing import Any
 from justpipe import Pipe, EventType
 from examples.utils import get_api_key, save_graph
 
@@ -15,8 +15,8 @@ except ImportError:
 
 @dataclass
 class State:
-    articles: List[str] = field(default_factory=list)
-    summaries: List[str] = field(default_factory=list)
+    articles: list[str] = field(default_factory=list)
+    summaries: list[str] = field(default_factory=list)
 
 
 @dataclass
@@ -24,7 +24,7 @@ class Context:
     client: Any = None
 
 
-pipe = Pipe[State, Context]()
+pipe = Pipe(State, Context)
 
 
 @pipe.on_startup
@@ -54,7 +54,7 @@ async def start(state: State):
     print(f"Found {len(state.articles)} articles to process.")
 
 
-@pipe.map("fan_out", using="summarize", to="compile_report")
+@pipe.map("fan_out", each="summarize", to="compile_report")
 async def fan_out(state: State):
     """Spawn parallel summarization tasks for each article."""
     return state.articles
@@ -100,8 +100,8 @@ async def main():
 
     print("Running News Summarizer Pipeline...")
     async for event in pipe.run(state, context, start="start"):
-        if event.type == EventType.ERROR:
-            print(f"Error in step {event.stage}: {event.data}")
+        if event.type == EventType.STEP_ERROR:
+            print(f"Error in step {event.stage}: {event.payload}")
     save_graph(pipe, Path(__file__).parent / "pipeline.mmd")
 
 

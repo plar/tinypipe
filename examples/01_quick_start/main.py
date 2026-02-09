@@ -10,9 +10,9 @@ class State:
     message: str = ""
 
 
-# 1. Define the Pipe with concrete State and Context types
+# 1. Define the Pipe with concrete State type (no context)
 # This ensures type safety throughout the pipeline.
-pipe = Pipe[State, None]()
+pipe = Pipe(State)
 
 
 @pipe.step()
@@ -38,9 +38,9 @@ async def main():
     async for event in pipe.run(state):
         if event.type == EventType.TOKEN:
             # TOKEN events are yielded by async generator steps
-            print(f"Received token: {event.data}")
-        elif event.type == EventType.ERROR:
-            print(f"Error: {event.data}")
+            print(f"Received token: {event.payload}")
+        elif event.type == EventType.STEP_ERROR:
+            print(f"Error: {event.payload}")
 
     # 4. Save the visualization
     # We use our utility to save a Mermaid diagram of this pipe.

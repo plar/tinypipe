@@ -13,7 +13,7 @@ class State:
     total: int = 0
 
 
-pipe = Pipe[State, None]()
+pipe = Pipe(State)
 
 
 # 2. Fan-in (Implicit Barrier): 'combine' runs only after BOTH calc_a and calc_b complete
@@ -51,7 +51,7 @@ async def main():
 
     async for event in pipe.run(state):
         if event.type == EventType.TOKEN:
-            print(f">>> {event.data}")
+            print(f">>> {event.payload}")
 
     save_graph(pipe, Path(__file__).parent / "pipeline.mmd")
 

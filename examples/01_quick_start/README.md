@@ -24,6 +24,7 @@ uv run python examples/01_quick_start/main.py
 ```text
 Starting pipeline...
 Received token: Hello, World!
+Finished with status: success
 Graph saved to .../pipeline.mmd
 ```
 

@@ -1,28 +1,31 @@
+from __future__ import annotations
+
 from typing import (
     Any,
-    AsyncGenerator,
-    Callable,
-    Dict,
     Generic,
-    Iterator,
-    List,
-    Optional,
     TypeVar,
-    Union,
-    get_args,
+    TYPE_CHECKING,
 )
+from collections.abc import AsyncGenerator, Callable, Iterator
 
 from justpipe.middleware import Middleware
-from justpipe.runner import _PipelineRunner
-from justpipe.registry import _PipelineRegistry
-from justpipe.steps import _BaseStep
+from justpipe.observability import validate_observer
 from justpipe.types import (
+    BarrierType,
+    CancellationToken,
     Event,
-    HookSpec,
+    FailureClassificationConfig,
+    Stop,
     StepInfo,
-    _Stop,
 )
-from justpipe.visualization import generate_mermaid_graph
+from justpipe.visualization import GraphRenderer, MermaidRenderer
+
+from justpipe._internal.runtime.engine.composition import RunnerConfig, build_runner
+from justpipe._internal.definition.pipeline_registry import _PipelineRegistry
+
+if TYPE_CHECKING:
+    from justpipe._internal.definition.steps import _BaseStep
+    from justpipe.observability import ObserverProtocol
 
 StateT = TypeVar("StateT")
 ContextT = TypeVar("ContextT")
@@ -31,70 +34,73 @@ ContextT = TypeVar("ContextT")
 class Pipe(Generic[StateT, ContextT]):
     def __init__(
         self,
+        state_type: type[StateT] | None = None,
+        context_type: type[ContextT] | None = None,
+        *,
         name: str = "Pipe",
-        middleware: Optional[List[Middleware]] = None,
-        queue_size: int = 0,
-        validate_on_run: bool = False,
+        middleware: list[Middleware] | None = None,
+        queue_size: int = 1000,
+        max_map_items: int | None = None,
+        debug: bool = False,
+        cancellation_token: CancellationToken | None = None,
+        failure_classification: FailureClassificationConfig | None = None,
     ):
+        """Create a new pipeline with explicit type parameters.
+
+        Args:
+            state_type: The type of state (defaults to type(None))
+            context_type: The type of context (defaults to type(None))
+            name: Pipeline name
+            middleware: list of middleware to apply
+            queue_size: Max events in queue (backpressure)
+            max_map_items: Max items to materialize from async generators in @pipe.map
+            debug: Enable debug logging
+            cancellation_token: Token for cooperative cancellation
+            failure_classification: Optional config for terminal failure source
+                classification. Supports a source classifier callback and extra
+                external dependency module prefixes.
+        """
         self.name = name
         self.queue_size = queue_size
-        self._validate_on_run = validate_on_run
+        self.cancellation_token = cancellation_token or CancellationToken()
+        self._failure_classification = (
+            failure_classification or FailureClassificationConfig()
+        )
 
-        # Determine types for registry
-        state_type, context_type = self._get_types()
+        self.state_type: type[Any] = state_type or type(None)
+        self.context_type: type[Any] = context_type or type(None)
+
         self.registry = _PipelineRegistry(
             pipe_name=name,
             middleware=middleware,
-            state_type=state_type,
-            context_type=context_type,
+            state_type=self.state_type,
+            context_type=self.context_type,
+            max_map_items=max_map_items,
         )
 
-    def _get_types(self) -> tuple[Any, Any]:
-        orig = getattr(self, "__orig_class__", None)
-        if orig:
-            args = get_args(orig)
-            if len(args) == 2:
-                return args[0], args[1]
-        return Any, Any
+        # Add debug observer if requested
+        if debug:
+            from justpipe.observability.logger import EventLogger
 
-    def _refresh_registry_types(self) -> None:
-        state_type, context_type = self._get_types()
-        if state_type is not Any:
-            self.registry.state_type = state_type
-        if context_type is not Any:
-            self.registry.context_type = context_type
+            self.add_observer(
+                EventLogger(
+                    level="INFO",
+                    sink=EventLogger.stderr_sink(),
+                    use_colors=True,
+                )
+            )
 
     # Internal properties for introspection and runner access
     @property
-    def _steps(self) -> Dict[str, _BaseStep]:
+    def _steps(self) -> dict[str, _BaseStep]:
         return self.registry.steps
 
     @property
-    def _topology(self) -> Dict[str, List[str]]:
+    def _topology(self) -> dict[str, list[str]]:
         return self.registry.topology
 
     @property
-    def _startup(self) -> List[Callable[..., Any]]:
-        return [hook.func for hook in self.registry.startup_hooks]
-
-    @property
-    def _shutdown(self) -> List[Callable[..., Any]]:
-        return [hook.func for hook in self.registry.shutdown_hooks]
-
-    @property
-    def _injection_metadata(self) -> Dict[str, Dict[str, str]]:
-        return self.registry.injection_metadata
-
-    @property
-    def _error_hook(self) -> Optional[HookSpec]:
-        return self.registry.error_hook
-
-    @property
-    def _event_hooks(self) -> List[Callable[[Event], Event]]:
-        return self.registry.event_hooks
-
-    @property
-    def middleware(self) -> List[Middleware]:
+    def middleware(self) -> list[Middleware]:
         return self.registry.middleware
 
     def add_middleware(self, mw: Middleware) -> None:
@@ -103,91 +109,133 @@ class Pipe(Generic[StateT, ContextT]):
     def add_event_hook(self, hook: Callable[[Event], Event]) -> None:
         self.registry.add_event_hook(hook)
 
+    def add_observer(self, observer: ObserverProtocol) -> None:
+        """Add an observer to receive pipeline lifecycle events.
+
+        Args:
+            observer: An observer implementing on_pipeline_start,
+                     on_event, on_pipeline_end, and on_pipeline_error methods.
+
+        Raises:
+            TypeError: If observer does not implement the required async hooks.
+
+        Example:
+            from justpipe.observability import Observer
+
+            class MyObserver(Observer):
+                async def on_event(self, state, context, meta, event):
+                    print(f"Event: {event.type}")
+
+            pipe.add_observer(MyObserver())
+        """
+
+        validate_observer(observer)
+        self.registry.add_observer(observer)
+
     def on_startup(self, func: Callable[..., Any]) -> Callable[..., Any]:
-        self._refresh_registry_types()
         return self.registry.on_startup(func)
 
     def on_shutdown(self, func: Callable[..., Any]) -> Callable[..., Any]:
-        self._refresh_registry_types()
         return self.registry.on_shutdown(func)
 
     def on_error(self, func: Callable[..., Any]) -> Callable[..., Any]:
-        self._refresh_registry_types()
         return self.registry.on_error(func)
 
     def step(
         self,
-        name: Union[str, Callable[..., Any], None] = None,
-        to: Union[
-            str, List[str], Callable[..., Any], List[Callable[..., Any]], None
-        ] = None,
-        barrier_timeout: Optional[float] = None,
-        on_error: Optional[Callable[..., Any]] = None,
+        name: str | Callable[..., Any] | None = None,
+        to: str
+        | list[str]
+        | Callable[..., Any]
+        | list[Callable[..., Any]]
+        | None = None,
+        barrier_timeout: float | None = None,
+        barrier_type: BarrierType | None = None,
+        on_error: Callable[..., Any] | None = None,
         **kwargs: Any,
     ) -> Callable[..., Any]:
-        self._refresh_registry_types()
-        return self.registry.step(name, to, barrier_timeout, on_error, **kwargs)
+        return self.registry.step_registry.step(
+            name, to, barrier_timeout, barrier_type, on_error, **kwargs
+        )
 
     def map(
         self,
-        name: Union[str, Callable[..., Any], None] = None,
-        using: Union[str, Callable[..., Any], None] = None,
-        to: Union[
-            str, List[str], Callable[..., Any], List[Callable[..., Any]], None
-        ] = None,
-        barrier_timeout: Optional[float] = None,
-        on_error: Optional[Callable[..., Any]] = None,
+        name: str | Callable[..., Any] | None = None,
+        each: str | Callable[..., Any] | None = None,
+        to: str
+        | list[str]
+        | Callable[..., Any]
+        | list[Callable[..., Any]]
+        | None = None,
+        barrier_timeout: float | None = None,
+        barrier_type: BarrierType | None = None,
+        on_error: Callable[..., Any] | None = None,
+        max_concurrency: int | None = None,
         **kwargs: Any,
     ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
-        self._refresh_registry_types()
-        return self.registry.map(name, using, to, barrier_timeout, on_error, **kwargs)
+        return self.registry.step_registry.map(
+            name,
+            each,
+            to,
+            barrier_timeout,
+            barrier_type,
+            on_error,
+            max_concurrency,
+            **kwargs,
+        )
 
     def switch(
         self,
-        name: Union[str, Callable[..., Any], None] = None,
-        routes: Union[
-            Dict[
-                Any,
-                Union[
-                    str,
-                    Callable[..., Any],
-                    _Stop,
-                ],
-            ],
-            Callable[[Any], Union[str, _Stop]],
-            None,
-        ] = None,
-        default: Union[str, Callable[..., Any], None] = None,
-        barrier_timeout: Optional[float] = None,
-        on_error: Optional[Callable[..., Any]] = None,
+        name: str | Callable[..., Any] | None = None,
+        to: dict[Any, str | Callable[..., Any] | type[Stop]]
+        | Callable[[Any], str | type[Stop]]
+        | None = None,
+        default: str | Callable[..., Any] | None = None,
+        barrier_timeout: float | None = None,
+        barrier_type: BarrierType | None = None,
+        on_error: Callable[..., Any] | None = None,
         **kwargs: Any,
     ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
-        self._refresh_registry_types()
-        return self.registry.switch(
+        return self.registry.step_registry.switch(
             name,
-            routes,
+            to,
             default,
             barrier_timeout,
+            barrier_type,
             on_error,
             **kwargs,
         )
 
     def sub(
         self,
-        name: Union[str, Callable[..., Any], None] = None,
-        using: Any = None,
-        to: Union[
-            str, List[str], Callable[..., Any], List[Callable[..., Any]], None
-        ] = None,
-        barrier_timeout: Optional[float] = None,
-        on_error: Optional[Callable[..., Any]] = None,
+        name: str | Callable[..., Any] | None = None,
+        pipeline: Any = None,
+        to: str
+        | list[str]
+        | Callable[..., Any]
+        | list[Callable[..., Any]]
+        | None = None,
+        barrier_timeout: float | None = None,
+        barrier_type: BarrierType | None = None,
+        on_error: Callable[..., Any] | None = None,
         **kwargs: Any,
     ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
-        self._refresh_registry_types()
-        return self.registry.sub(name, using, to, barrier_timeout, on_error, **kwargs)
+        return self.registry.step_registry.sub(
+            name, pipeline, to, barrier_timeout, barrier_type, on_error, **kwargs
+        )
 
-    def graph(self) -> str:
-        return generate_mermaid_graph(
+    def graph(self, renderer: GraphRenderer | None = None) -> str:
+        """
+        Generate a visual representation of the pipeline.
+
+        Args:
+            renderer: Optional GraphRenderer instance (defaults to MermaidRenderer).
+
+        Returns:
+            A string representation of the graph.
+        """
+        effective_renderer = renderer or MermaidRenderer()
+        return effective_renderer.render(
             self.registry.steps,
             self.registry.topology,
             startup_hooks=[hook.func for hook in self.registry.startup_hooks],
@@ -196,10 +244,10 @@ class Pipe(Generic[StateT, ContextT]):
 
     def steps(self) -> Iterator[StepInfo]:
         """Iterate over registered steps with their configuration."""
-        return self.registry.get_steps_info()
+        return self.registry.step_registry.get_steps_info()
 
     @property
-    def topology(self) -> Dict[str, List[str]]:
+    def topology(self) -> dict[str, list[str]]:
         """Read-only view of the execution graph."""
         return dict(self.registry.topology)
 
@@ -207,11 +255,11 @@ class Pipe(Generic[StateT, ContextT]):
         """
         Validate the pipeline graph integrity.
         Raises:
-            ValueError: if any unresolvable references or integrity issues are found.
+            DefinitionError: if any unresolvable references or integrity issues are found.
         """
-        from justpipe.graph import _DependencyGraph
+        from justpipe._internal.graph.graph_validator import _GraphValidator
 
-        graph = _DependencyGraph(
+        graph = _GraphValidator(
             self.registry.steps,
             self.registry.topology,
         )
@@ -220,22 +268,31 @@ class Pipe(Generic[StateT, ContextT]):
     async def run(
         self,
         state: StateT,
-        context: Optional[ContextT] = None,
-        start: Union[str, Callable[..., Any], None] = None,
-        queue_size: Optional[int] = None,
+        context: ContextT | None = None,
+        start: str | Callable[..., Any] | None = None,
+        queue_size: int | None = None,
+        timeout: float | None = None,
     ) -> AsyncGenerator[Event, None]:
-        if self._validate_on_run:
-            self.validate()
+        self.validate()
         self.registry.finalize()
-        runner: _PipelineRunner[StateT, ContextT] = _PipelineRunner(
-            self.registry.steps,
-            self.registry.topology,
-            self.registry.injection_metadata,
-            self.registry.startup_hooks,
-            self.registry.shutdown_hooks,
+        self.registry.freeze()
+
+        effective_queue_size = queue_size if queue_size is not None else self.queue_size
+        config: RunnerConfig[StateT, ContextT] = RunnerConfig(
+            steps=self.registry.steps,
+            topology=self.registry.topology,
+            injection_metadata=self.registry.injection_metadata,
+            startup_hooks=self.registry.startup_hooks,
+            shutdown_hooks=self.registry.shutdown_hooks,
             on_error=self.registry.error_hook,
-            queue_size=queue_size if queue_size is not None else self.queue_size,
+            queue_size=effective_queue_size,
             event_hooks=self.registry.event_hooks,
+            observers=self.registry.observers,
+            pipe_name=self.name,
+            cancellation_token=self.cancellation_token,
+            failure_classification=self._failure_classification,
         )
-        async for event in runner.run(state, context, start):
+        runner = build_runner(config)
+
+        async for event in runner.run(state, context, start, timeout):
             yield event
