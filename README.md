@@ -305,6 +305,7 @@ graph TD
     n6["Parse Query"]
     n7["Rank Results"]
     End(["■ End"])
+    n4 --> End
 
     Start --> n6
     n1 --> n5
@@ -317,13 +318,16 @@ graph TD
     n8 --> n7
     n9 --> n7
     n10 --> n7
-    n4 --> End
 
     subgraph utilities[Utilities]
         direction TB
         n0(["Analytics Logger ⚡"]):::isolated
         n2["Cache Manager"]:::isolated
     end
+    class n1,n3,n6,n7,n8 step;
+    class n10,n4,n5,n9 streaming;
+    class n0,n2 isolated;
+    class Start,End startEnd;
 
     %% Styling
     classDef default fill:#f8f9fa,stroke:#dee2e6,stroke-width:1px;
@@ -331,12 +335,9 @@ graph TD
     classDef streaming fill:#fff3e0,stroke:#f57c00,stroke-width:2px,color:#e65100;
     classDef map fill:#e8f5e9,stroke:#388e3c,stroke-width:2px,color:#1b5e20;
     classDef switch fill:#f3e5f5,stroke:#7b1fa2,stroke-width:2px,color:#4a148c;
+    classDef sub fill:#f1f8e9,stroke:#558b2f,stroke-width:2px,color:#33691e;
     classDef isolated fill:#fce4ec,stroke:#c2185b,stroke-width:2px,stroke-dasharray: 5 5,color:#880e4f;
     classDef startEnd fill:#e8f5e9,stroke:#388e3c,stroke-width:3px,color:#1b5e20;
-    class n1,n3,n6,n7,n8 step;
-    class n10,n4,n5,n9 streaming;
-    class n0,n2 isolated;
-    class Start,End startEnd;
 ```
 
 ## Parallel Execution (DAG)
