@@ -70,26 +70,14 @@ jobs:
           user_name: 'github-actions[bot]'
           user_email: 'github-actions[bot]@users.noreply.github.com'
 
-    docs-link-check:
-
-      name: Docs Link Check
-
-      runs-on: ubuntu-latest
-
-      steps:
-
-        - uses: actions/checkout@v4
-
-        - name: Link Checker
-
-          uses: lycheeverse/lychee-action@v2
-
-          with:
-
-            args: --verbose --no-progress --exclude-mail "docs/**/*.md" "README.md" "AGENTS.md"
-
-          env:
-
-            GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  
+  docs-link-check:
+    name: Docs Link Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Link Checker
+        uses: lycheeverse/lychee-action@v2
+        with:
+          args: --verbose --no-progress --exclude-mail "docs/**/*.md" "README.md" "AGENTS.md"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
