@@ -1,0 +1,22 @@
+.python-version
+PRD*.md
+.coverage
+__pycache__/
+*.egg-info/
+dist/
+build/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.venv/
+.gemini/
+.claude/
+.hypothesis/
+*timeline.txt
+.mutmut-cache
+mutants/
+.uv_cache/
+
+# Local conductor files
+conductor/
+conductor/
