@@ -58,11 +58,14 @@ class _GraphValidator:
             targets.extend(step.get_targets())
         return targets
 
-    def _walk_reachable(
-        self,
-        roots: set[str],
-        edges: dict[str, list[str]],
-    ) -> set[str]:
+    def _build_parents_map(self) -> dict[str, set[str]]:
+        parents_map: dict[str, set[str]] = defaultdict(set)
+        for parent in self._steps:
+            for child in self._targets_for(parent):
+                parents_map[child].add(parent)
+        return parents_map
+
+    def _walk_reachable(self, roots: set[str]) -> set[str]:
         reachable: set[str] = set()
         stack: list[str] = list(roots)
         while stack:
@@ -70,7 +73,7 @@ class _GraphValidator:
             if node in reachable:
                 continue
             reachable.add(node)
-            for target in edges.get(node, []):
+            for target in self._targets_for(node):
                 if target not in reachable:
                     stack.append(target)
         return reachable
@@ -82,10 +85,7 @@ class _GraphValidator:
         start_name: str,
         strict: bool,
     ) -> None:
-        parents_map: dict[str, set[str]] = defaultdict(set)
-        for parent, children in self._topology.items():
-            for child in children:
-                parents_map[child].add(parent)
+        parents_map = self._build_parents_map()
 
         for node in sorted(reachable_nodes):
             parents = parents_map.get(node, set())
@@ -284,7 +284,7 @@ class _GraphValidator:
                 )
 
         if start_name is not None:
-            reachable_from_start = self._walk_reachable(traversal_roots, self._topology)
+            reachable_from_start = self._walk_reachable(traversal_roots)
             self._validate_start_scope_all_barriers(
                 reachable_nodes=reachable_from_start,
                 start_name=start_name,

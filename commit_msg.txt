@@ -1,1 +1,5 @@
-feat: initial release of justpipe v0.7.0
+refactor: optimize graph validator and improve DefinitionError diagnostics
+
+- Centralize parent mapping in _build_parents_map for better internal reuse.
+- Simplify _walk_reachable to consistently use _targets_for.
+- Add step_name context to DefinitionError for improved observability and diagnostics.

@@ -9,7 +9,9 @@ import time
 class DefinitionError(Exception):
     """Raised when a pipeline or step is defined incorrectly."""
 
-    pass
+    def __init__(self, message: str, *, step_name: str = "system"):
+        super().__init__(message)
+        self.step_name = step_name
 
 
 class PipelineValidationWarning(UserWarning):
