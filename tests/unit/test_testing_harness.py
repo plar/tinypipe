@@ -95,11 +95,10 @@ async def test_context_manager() -> None:
         result = await tester.run(State(0))
         assert result.final_state.val == 50
 
-    # Outside context it should be restored
-    s = State(0)
-    async for event in pipe.run(s):
-        if event.type == EventType.FINISH:
-            assert s.val == 1
+    # Outside context manager, original step should be restored
+    tester2 = TestPipe(pipe)
+    result = await tester2.run(State(0))
+    assert result.final_state.val == 1
 
 
 @pytest.mark.asyncio

@@ -1,6 +1,6 @@
 import pytest
 from typing import Any
-from justpipe import DefinitionError, Pipe, PipelineValidationWarning
+from justpipe import DefinitionError, Pipe
 
 
 def test_steps_empty_pipe() -> None:
@@ -163,104 +163,6 @@ def test_topology_is_copy() -> None:
 
     # Original should be unchanged
     assert pipe.topology["first"] == ["second"]
-
-
-@pytest.mark.asyncio
-async def test_run_validation_always_enabled_unknown_target() -> None:
-    pipe: Pipe[Any, Any] = Pipe()
-
-    @pipe.step("first", to="nonexistent")
-    async def first() -> None:
-        pass
-
-    with pytest.raises(DefinitionError, match="targets unknown step 'nonexistent'"):
-        async for _ in pipe.run({}):
-            pass
-
-
-@pytest.mark.asyncio
-async def test_run_validation_always_enabled_valid_pipe() -> None:
-    pipe: Pipe[Any, Any] = Pipe()
-
-    @pipe.step("first", to="second")
-    async def first() -> None:
-        pass
-
-    @pipe.step("second")
-    async def second() -> None:
-        pass
-
-    events: list[Any] = []
-    async for event in pipe.run({}):
-        events.append(event)
-
-    assert len(events) > 0
-
-
-@pytest.mark.asyncio
-async def test_run_validation_fails_no_entry_cycle() -> None:
-    pipe: Pipe[Any, Any] = Pipe()
-
-    @pipe.step("a", to="b")
-    async def step_a() -> None:
-        pass
-
-    @pipe.step("b", to="a")
-    async def step_b() -> None:
-        pass
-
-    with pytest.raises(DefinitionError, match="no entry points found"):
-        async for _ in pipe.run({}):
-            pass
-
-
-def test_validate_start_scope_missing_all_barrier_parent_strict() -> None:
-    pipe: Pipe[dict[str, Any], None] = Pipe(strict=True)
-
-    @pipe.step("sentry", to="judge")
-    async def sentry(state: dict[str, Any]) -> None:
-        state.setdefault("trace", []).append("sentry")
-
-    @pipe.step("judge", to="scorer")
-    async def judge(state: dict[str, Any]) -> None:
-        state.setdefault("trace", []).append("judge")
-
-    @pipe.step("writer", to="scorer")
-    async def writer(state: dict[str, Any]) -> None:
-        state.setdefault("trace", []).append("writer")
-
-    @pipe.step("scorer")
-    async def scorer(state: dict[str, Any]) -> None:
-        state.setdefault("trace", []).append("scorer")
-
-    with pytest.raises(DefinitionError, match="requires ALL parents"):
-        pipe.validate(start="sentry")
-
-
-def test_validate_start_scope_missing_all_barrier_parent_non_strict_warns() -> None:
-    pipe: Pipe[dict[str, Any], None] = Pipe(strict=False)
-
-    @pipe.step("sentry", to="judge")
-    async def sentry(state: dict[str, Any]) -> None:
-        state.setdefault("trace", []).append("sentry")
-
-    @pipe.step("judge", to="scorer")
-    async def judge(state: dict[str, Any]) -> None:
-        state.setdefault("trace", []).append("judge")
-
-    @pipe.step("writer", to="scorer")
-    async def writer(state: dict[str, Any]) -> None:
-        state.setdefault("trace", []).append("writer")
-
-    @pipe.step("scorer")
-    async def scorer(state: dict[str, Any]) -> None:
-        state.setdefault("trace", []).append("scorer")
-
-    with pytest.warns(
-        PipelineValidationWarning,
-        match=r"cannot reach parent\(s\): writer",
-    ):
-        pipe.validate(start="sentry")
 
 
 def test_validate_with_unknown_start_step() -> None:

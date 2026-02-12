@@ -214,3 +214,52 @@ async def test_subpipe_event_origin_run_lineage_is_preserved() -> None:
     assert child_origin_id != parent_run_id
 
     assert {event.run_id for event in child_step_events} == {parent_run_id}
+
+
+@pytest.mark.asyncio
+async def test_run_validation_rejects_unknown_target() -> None:
+    pipe: Pipe[Any, Any] = Pipe()
+
+    @pipe.step("first", to="nonexistent")
+    async def first() -> None:
+        pass
+
+    with pytest.raises(DefinitionError, match="targets unknown step 'nonexistent'"):
+        async for _ in pipe.run({}):
+            pass
+
+
+@pytest.mark.asyncio
+async def test_run_validation_accepts_valid_pipe() -> None:
+    pipe: Pipe[Any, Any] = Pipe()
+
+    @pipe.step("first", to="second")
+    async def first() -> None:
+        pass
+
+    @pipe.step("second")
+    async def second() -> None:
+        pass
+
+    events: list[Any] = []
+    async for event in pipe.run({}):
+        events.append(event)
+
+    assert len(events) > 0
+
+
+@pytest.mark.asyncio
+async def test_run_validation_rejects_no_entry_cycle() -> None:
+    pipe: Pipe[Any, Any] = Pipe()
+
+    @pipe.step("a", to="b")
+    async def step_a() -> None:
+        pass
+
+    @pipe.step("b", to="a")
+    async def step_b() -> None:
+        pass
+
+    with pytest.raises(DefinitionError, match="no entry points found"):
+        async for _ in pipe.run({}):
+            pass

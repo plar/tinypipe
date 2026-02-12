@@ -10,6 +10,8 @@ from hypothesis import given, strategies as st, settings
 
 from justpipe import Pipe, EventType
 
+pytestmark = pytest.mark.slow
+
 
 # ============================================================================
 # Switch Routing Fuzz Tests

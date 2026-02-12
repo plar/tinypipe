@@ -21,8 +21,6 @@ from justpipe.types import Event, EventType
 @pytest.fixture
 async def storage_with_runs() -> InMemoryStorage:
     """Create storage with test runs."""
-    import time
-
     storage = InMemoryStorage()
 
     # Create runs with different statuses and ages
