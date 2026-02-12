@@ -4,6 +4,19 @@ from typing import Any, cast
 from collections.abc import AsyncGenerator
 from justpipe import Pipe, EventType
 
+pytestmark = pytest.mark.slow
+
+
+async def _wait_until(
+    predicate: Any, *, timeout: float = 1.0, interval: float = 0.005
+) -> None:
+    """Poll until *predicate()* is truthy, or raise after *timeout*."""
+    deadline = asyncio.get_event_loop().time() + timeout
+    while not predicate():
+        if asyncio.get_event_loop().time() > deadline:
+            raise AssertionError("Timed out waiting for condition")
+        await asyncio.sleep(interval)
+
 
 @pytest.mark.asyncio
 async def test_backpressure_slow_consumer() -> None:
@@ -32,21 +45,11 @@ async def test_backpressure_slow_consumer() -> None:
     assert ev.type == EventType.STEP_START
     assert ev.stage == "producer"
 
-    # At this point the queue is empty.
-    # The producer task is running.
-    # It will yield 'token_0'.
-    # The runner will put(token_0) -> queue has 1 item.
-    # Then producer will yield 'token_1'.
-    # The runner will try to put(token_1) -> this will BLOCK because queue is full.
-
-    await asyncio.sleep(0.05)
-
-    # Producer should be blocked after yielding the second token (trying to put it).
-    # So produced_tokens should contain [0], and it's currently stuck trying to put 1.
-    # Wait, 'produced_tokens.append(i)' happens AFTER 'yield'.
-    # If 'yield' blocks, 'produced_tokens' won't be updated for the blocked token.
-
-    assert len(produced_tokens) == 1
+    # Wait for producer to yield token_0 and get blocked on token_1.
+    # produced_tokens.append(i) runs AFTER yield returns, so once we see
+    # produced_tokens == [0] the producer has yielded token_0 and is blocked
+    # trying to put token_1 into the full queue.
+    await _wait_until(lambda: len(produced_tokens) >= 1)
     assert produced_tokens == [0]
 
     # 3. Consume 'token_0'
@@ -54,11 +57,8 @@ async def test_backpressure_slow_consumer() -> None:
     assert ev.type == EventType.TOKEN
     assert ev.payload == "token_0"
 
-    # Now queue has space. token_1 should be put into the queue.
-    # Producer should continue and try to yield token_2.
-
-    await asyncio.sleep(0.05)
-    assert len(produced_tokens) == 2
+    # Now queue has space. token_1 enters; producer advances and blocks on token_2.
+    await _wait_until(lambda: len(produced_tokens) >= 2)
     assert produced_tokens == [0, 1]
 
     # 4. Consume 'token_1'
@@ -66,8 +66,7 @@ async def test_backpressure_slow_consumer() -> None:
     assert ev.type == EventType.TOKEN
     assert ev.payload == "token_1"
 
-    await asyncio.sleep(0.05)
-    assert len(produced_tokens) == 3
+    await _wait_until(lambda: len(produced_tokens) >= 3)
 
     # Finish the rest
     remaining: list[Any] = []

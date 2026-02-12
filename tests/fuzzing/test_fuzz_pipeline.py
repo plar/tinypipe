@@ -13,6 +13,8 @@ from dataclasses import dataclass
 from justpipe import Pipe, EventType
 from justpipe.types import CancellationToken
 
+pytestmark = pytest.mark.slow
+
 
 # ============================================================================
 # Strategy Definitions

@@ -30,21 +30,15 @@ async def test_finish_metrics_basic() -> None:
 
 @pytest.mark.asyncio
 async def test_finish_metrics_map_workers() -> None:
-    pipe: Pipe[dict[str, int], dict[str, int]] = Pipe(dict, dict, allow_multi_root=True)
+    pipe: Pipe[dict[str, int], dict[str, int]] = Pipe(dict, dict)
 
-    @pipe.step(to="fan_out")
-    async def start(state: dict[str, int]) -> None:
-        _ = state
-
-    @pipe.step()
-    async def fan_out() -> object:
-        from justpipe._internal.types import _Map
-
-        return _Map(items=[1, 2, 3], target="worker")
+    @pipe.map(each="worker")
+    async def fan_out() -> list[int]:
+        return [1, 2, 3]
 
     @pipe.step()
-    async def worker(value: int | None = None) -> None:
-        _ = value
+    async def worker(item: int) -> None:
+        _ = item
         await asyncio.sleep(0.01)
 
     events = []

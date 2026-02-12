@@ -3,6 +3,8 @@ from typing import Any
 from collections.abc import AsyncGenerator
 from justpipe import Pipe, EventType
 
+pytestmark = pytest.mark.slow
+
 
 @pytest.mark.asyncio
 async def test_map_async_gen_limit_default() -> None:

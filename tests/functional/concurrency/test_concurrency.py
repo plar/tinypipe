@@ -6,6 +6,8 @@ from typing import Any
 
 from justpipe import Pipe, EventType
 
+pytestmark = pytest.mark.slow
+
 
 @pytest.mark.asyncio
 async def test_map_max_concurrency_throttling() -> None:
