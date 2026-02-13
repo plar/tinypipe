@@ -4,7 +4,7 @@ benchmark: 5.2.3 (defaults: timer=time.perf_counter disable_gc=False min_rounds=
 rootdir: /home/runner/work/justpipe/justpipe
 configfile: pyproject.toml
 testpaths: tests
-plugins: benchmark-5.2.3, cov-7.0.0, hypothesis-6.151.4, asyncio-1.3.0, anyio-4.12.1, repeat-0.9.4
+plugins: benchmark-5.2.3, anyio-4.12.1, hypothesis-6.151.4, repeat-0.9.4, cov-7.0.0, asyncio-1.3.0
 asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
 collected 400 items
 
@@ -155,4 +155,4 @@ justpipe/visualization/mermaid.py                                      215     5
 justpipe/visualization/renderer.py                                       6      0   100%
 --------------------------------------------------------------------------------------------------
 TOTAL                                                                 4577    474    90%
-============================= 400 passed in 13.25s =============================
+============================= 400 passed in 13.01s =============================
