@@ -2,11 +2,14 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Generic, TypeVar
+from typing import Generic, TypeVar, TYPE_CHECKING
 import uuid
 
 from justpipe._internal.runtime.telemetry.execution_log import _ExecutionLog
 from justpipe._internal.runtime.engine.run_state import _RunSession, _RunStateMachine
+
+if TYPE_CHECKING:
+    from justpipe._internal.runtime.meta import _MetaImpl
 
 StateT = TypeVar("StateT")
 ContextT = TypeVar("ContextT")
@@ -23,6 +26,7 @@ class _RunContext(Generic[StateT, ContextT]):
     session: _RunSession = field(default_factory=_RunSession)
     runtime_sm: _RunStateMachine = field(default_factory=_RunStateMachine)
     log: _ExecutionLog = field(default_factory=_ExecutionLog)
+    meta_impl: _MetaImpl | None = None
     _event_seq: int = 0
     _invocation_seq: int = 0
     _attempts: dict[str, int] = field(default_factory=lambda: defaultdict(int))

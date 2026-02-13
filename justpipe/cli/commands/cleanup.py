@@ -1,65 +1,63 @@
 """Cleanup command for CLI."""
 
+from __future__ import annotations
+
+from collections import Counter
 from datetime import datetime, timedelta
-from justpipe.storage.interface import StorageBackend
+
+from justpipe.cli.formatting import format_timestamp
+from justpipe.cli.registry import AnnotatedRun, PipelineRegistry
+from justpipe.types import PipelineTerminalStatus
 
 
-async def cleanup_command(
-    storage: StorageBackend,
+def _format_run_line(a: AnnotatedRun) -> str:
+    """Format a single run for cleanup display."""
+    return (
+        f"  {a.run.run_id[:12]}  {a.pipeline_name:<20}  {a.run.status.value:<14}  "
+        f"{format_timestamp(a.run.start_time)}"
+    )
+
+
+def cleanup_command(
+    registry: PipelineRegistry,
     older_than_days: int | None = None,
-    status: str | None = None,
+    status: PipelineTerminalStatus | None = None,
     keep: int = 10,
     dry_run: bool = False,
 ) -> None:
-    """Clean up old pipeline runs.
-
-    Args:
-        storage: Storage backend
-        older_than_days: Delete runs older than N days
-        status: Only delete runs with this status
-        keep: Keep at least N most recent runs (default: 10)
-        dry_run: Show what would be deleted without actually deleting
-    """
-
-    # Get all runs
-    all_runs = await storage.list_runs(limit=10000)
+    """Clean up old pipeline runs."""
+    all_runs = registry.list_all_runs(limit=10000)
 
     if not all_runs:
         print("No runs found")
         return
 
-    # Filter runs to delete
-    runs_to_delete = []
-
-    # Calculate cutoff timestamp if older_than_days specified
-    cutoff_timestamp = None
+    # Calculate cutoff datetime if older_than_days specified
+    cutoff: datetime | None = None
     if older_than_days:
-        cutoff_time = datetime.now() - timedelta(days=older_than_days)
-        cutoff_timestamp = cutoff_time.timestamp()
+        cutoff = datetime.now() - timedelta(days=older_than_days)
 
     # Sort by start time (newest first)
-    all_runs.sort(key=lambda r: r.start_time, reverse=True)
+    all_runs.sort(key=lambda a: a.run.start_time, reverse=True)
 
     # Always keep the N most recent runs
-    # runs_to_keep = all_runs[:keep]  # Not used, but kept for clarity
     candidate_runs = all_runs[keep:]
 
-    for run in candidate_runs:
+    runs_to_delete = []
+    for annotated in candidate_runs:
+        run = annotated.run
         # Check status filter
         if status and run.status != status:
             continue
-
         # Check age filter
-        if cutoff_timestamp and run.start_time >= cutoff_timestamp:
+        if cutoff and run.start_time >= cutoff:
             continue
-
-        runs_to_delete.append(run)
+        runs_to_delete.append(annotated)
 
     if not runs_to_delete:
         print("No runs to clean up")
         return
 
-    # Show what will be deleted
     print(f"Found {len(runs_to_delete)} run(s) to clean up")
     print()
 
@@ -68,41 +66,29 @@ async def cleanup_command(
         print()
 
     # Group by status for summary
-    from collections import Counter
-
-    status_counts = Counter(r.status for r in runs_to_delete)
+    status_counts: Counter[str] = Counter(a.run.status.value for a in runs_to_delete)
 
     print("Runs to delete by status:")
     for s, count in status_counts.most_common():
-        print(f"  {s:<10} {count:>5} run(s)")
+        print(f"  {s:<14} {count:>5} run(s)")
     print()
 
     # Show date range
-    if runs_to_delete:
-        oldest = min(r.start_time for r in runs_to_delete)
-        newest = max(r.start_time for r in runs_to_delete)
+    oldest = min(a.run.start_time for a in runs_to_delete)
+    newest = max(a.run.start_time for a in runs_to_delete)
 
-        print(
-            f"Date range: {datetime.fromtimestamp(oldest).strftime('%Y-%m-%d')} to "
-            f"{datetime.fromtimestamp(newest).strftime('%Y-%m-%d')}"
-        )
-        print()
+    print(f"Date range: {format_timestamp(oldest)} to {format_timestamp(newest)}")
+    print()
 
     # Show sample runs
     if len(runs_to_delete) <= 10:
         print("Runs to delete:")
-        for run in runs_to_delete:
-            print(
-                f"  {run.id[:12]}  {run.pipeline_name:<20}  {run.status:<10}  "
-                f"{datetime.fromtimestamp(run.start_time).strftime('%Y-%m-%d %H:%M')}"
-            )
+        for a in runs_to_delete:
+            print(_format_run_line(a))
     else:
         print(f"Showing first 10 of {len(runs_to_delete)} runs:")
-        for run in runs_to_delete[:10]:
-            print(
-                f"  {run.id[:12]}  {run.pipeline_name:<20}  {run.status:<10}  "
-                f"{datetime.fromtimestamp(run.start_time).strftime('%Y-%m-%d %H:%M')}"
-            )
+        for a in runs_to_delete[:10]:
+            print(_format_run_line(a))
         print(f"  ... and {len(runs_to_delete) - 10} more")
 
     print()
@@ -112,15 +98,14 @@ async def cleanup_command(
         return
 
     # Confirm deletion
-    if len(runs_to_delete) > 0:
-        try:
-            response = input(f"Delete {len(runs_to_delete)} run(s)? [y/N]: ")
-            if response.lower() != "y":
-                print("Cancelled")
-                return
-        except (EOFError, KeyboardInterrupt):
-            print("\nCancelled")
+    try:
+        response = input(f"Delete {len(runs_to_delete)} run(s)? [y/N]: ")
+        if response.lower() != "y":
+            print("Cancelled")
             return
+    except (EOFError, KeyboardInterrupt):
+        print("\nCancelled")
+        return
 
     # Delete runs
     deleted_count = 0
@@ -129,25 +114,25 @@ async def cleanup_command(
     print()
     print("Deleting runs...")
 
-    for run in runs_to_delete:
+    for annotated in runs_to_delete:
         try:
-            success = await storage.delete_run(run.id)
+            backend = registry.get_backend(annotated.pipeline_hash)
+            success = backend.delete_run(annotated.run.run_id)
             if success:
                 deleted_count += 1
             else:
                 failed_count += 1
-                print(f"  Failed to delete: {run.id[:12]}")
+                print(f"  Failed to delete: {annotated.run.run_id[:12]}")
         except Exception as e:
             failed_count += 1
-            print(f"  Error deleting {run.id[:12]}: {e}")
+            print(f"  Error deleting {annotated.run.run_id[:12]}: {e}")
 
     print()
-    print(f"✓ Deleted {deleted_count} run(s)")
+    print(f"Deleted {deleted_count} run(s)")
 
     if failed_count > 0:
-        print(f"✗ Failed to delete {failed_count} run(s)")
+        print(f"Failed to delete {failed_count} run(s)")
 
-    # Show remaining runs
-    remaining_runs = await storage.list_runs(limit=10000)
+    remaining = registry.list_all_runs(limit=10000)
     print()
-    print(f"Remaining: {len(remaining_runs)} run(s)")
+    print(f"Remaining: {len(remaining)} run(s)")

@@ -22,6 +22,7 @@ from justpipe.types import (
 from justpipe.visualization import GraphRenderer, MermaidRenderer
 
 from justpipe._internal.runtime.engine.composition import RunnerConfig, build_runner
+from justpipe._internal.shared.pipeline_hash import compute_pipeline_hash
 from justpipe._internal.definition.pipeline_registry import _PipelineRegistry
 
 if TYPE_CHECKING:
@@ -32,12 +33,12 @@ StateT = TypeVar("StateT")
 ContextT = TypeVar("ContextT")
 
 
-def _resolve_debug_flag(debug: bool | None) -> bool:
-    """Resolve debug flag from explicit value or JUSTPIPE_DEBUG env var."""
-    if debug is not None:
-        return debug
+def _resolve_bool_flag(explicit: bool | None, env_var: str) -> bool:
+    """Resolve a boolean flag from explicit value or environment variable."""
+    if explicit is not None:
+        return explicit
 
-    raw = os.getenv("JUSTPIPE_DEBUG")
+    raw = os.getenv(env_var)
     if raw is None:
         return False
 
@@ -64,6 +65,8 @@ class Pipe(Generic[StateT, ContextT]):
         debug: bool | None = None,
         cancellation_token: CancellationToken | None = None,
         failure_classification: FailureClassificationConfig | None = None,
+        metadata: dict[str, Any] | None = None,
+        persist: bool | None = None,
     ):
         """Create a new pipeline with explicit type parameters.
 
@@ -82,6 +85,10 @@ class Pipe(Generic[StateT, ContextT]):
             failure_classification: Optional config for terminal failure source
                 classification. Supports a source classifier callback and extra
                 external dependency module prefixes.
+            metadata: Pipeline-level definition metadata (read-only at runtime
+                via ``ctx.meta.pipeline``).
+            persist: Enable local persistence of runs and events. If None,
+                uses JUSTPIPE_PERSIST env var. Default: False.
         """
         self.name = name
         self.strict = strict
@@ -91,6 +98,8 @@ class Pipe(Generic[StateT, ContextT]):
         self._failure_classification = (
             failure_classification or FailureClassificationConfig()
         )
+        self._metadata = metadata or {}
+        self._persist = _resolve_bool_flag(persist, "JUSTPIPE_PERSIST")
 
         self.state_type: type[Any] = state_type or type(None)
         self.context_type: type[Any] = context_type or type(None)
@@ -104,7 +113,7 @@ class Pipe(Generic[StateT, ContextT]):
         )
 
         # Add debug observer if requested (explicit flag or JUSTPIPE_DEBUG env var)
-        if _resolve_debug_flag(debug):
+        if _resolve_bool_flag(debug, "JUSTPIPE_DEBUG"):
             from justpipe.observability.logger import EventLogger
 
             self.add_observer(
@@ -267,6 +276,53 @@ class Pipe(Generic[StateT, ContextT]):
             shutdown_hooks=[hook.func for hook in self.registry.shutdown_hooks],
         )
 
+    def describe(self) -> dict[str, Any]:
+        """Return a JSON-serializable pipeline snapshot.
+
+        Includes pipeline identity, node definitions, topology, and metadata.
+        """
+        nodes: dict[str, dict[str, Any]] = {}
+        for info in self.registry.step_registry.get_steps_info():
+            node: dict[str, Any] = {
+                "kind": info.kind,
+                "targets": info.targets,
+            }
+            if info.timeout is not None:
+                node["timeout"] = info.timeout
+            if info.retries:
+                node["retries"] = info.retries
+            if info.barrier_timeout is not None:
+                node["barrier_timeout"] = info.barrier_timeout
+            if info.has_error_handler:
+                node["has_error_handler"] = True
+            nodes[info.name] = node
+
+        roots = [
+            name
+            for name in self.registry.steps
+            if not any(name in targets for targets in self.registry.topology.values())
+        ]
+
+        hooks: dict[str, Any] = {}
+        if self.registry.startup_hooks:
+            hooks["startup"] = [h.func.__name__ for h in self.registry.startup_hooks]
+        if self.registry.shutdown_hooks:
+            hooks["shutdown"] = [h.func.__name__ for h in self.registry.shutdown_hooks]
+        if self.registry.error_hook:
+            hooks["on_error"] = self.registry.error_hook.func.__name__
+
+        return {
+            "name": self.name,
+            "pipeline_hash": compute_pipeline_hash(
+                self.name, self.registry.steps, self.registry.topology
+            ),
+            "nodes": nodes,
+            "topology": dict(self.registry.topology),
+            "roots": roots,
+            "metadata": dict(self._metadata),
+            "hooks": hooks,
+        }
+
     def steps(self) -> Iterator[StepInfo]:
         """Iterate over registered steps with their configuration."""
         return self.registry.step_registry.get_steps_info()
@@ -303,6 +359,33 @@ class Pipe(Generic[StateT, ContextT]):
             allow_multi_root=effective_allow_multi_root,
         )
 
+    def _get_observers(self) -> list[ObserverProtocol]:
+        """Assemble the observer list for a pipeline run."""
+        observers = list(self.registry.observers) if self.registry.observers else []
+
+        if self._persist:
+            from justpipe._internal.runtime.persistence import (
+                _AutoPersistenceObserver,
+                _resolve_storage_path,
+            )
+            from justpipe.storage.sqlite import SQLiteBackend
+
+            pipeline_hash = compute_pipeline_hash(
+                self.name, self.registry.steps, self.registry.topology
+            )
+            storage_dir = _resolve_storage_path() / pipeline_hash
+            storage_dir.mkdir(parents=True, exist_ok=True)
+            backend = SQLiteBackend(storage_dir / "runs.db")
+            observers.append(
+                _AutoPersistenceObserver(
+                    backend=backend,
+                    pipeline_hash=pipeline_hash,
+                    describe_snapshot=self.describe(),
+                )
+            )
+
+        return observers
+
     async def run(
         self,
         state: StateT,
@@ -315,6 +398,8 @@ class Pipe(Generic[StateT, ContextT]):
         self.registry.finalize()
         self.registry.freeze()
 
+        observers = self._get_observers()
+
         effective_queue_size = queue_size if queue_size is not None else self.queue_size
         config: RunnerConfig[StateT, ContextT] = RunnerConfig(
             steps=self.registry.steps,
@@ -325,10 +410,11 @@ class Pipe(Generic[StateT, ContextT]):
             on_error=self.registry.error_hook,
             queue_size=effective_queue_size,
             event_hooks=self.registry.event_hooks,
-            observers=self.registry.observers,
+            observers=observers or None,
             pipe_name=self.name,
             cancellation_token=self.cancellation_token,
             failure_classification=self._failure_classification,
+            pipe_metadata=self._metadata,
         )
         runner = build_runner(config)
 

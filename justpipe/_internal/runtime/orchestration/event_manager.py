@@ -40,11 +40,14 @@ class _EventManager:
             event = result
         return event
 
-    async def notify_start(self, state: Any, context: Any) -> None:
+    async def notify_start(
+        self, state: Any, context: Any, run_id: str | None = None
+    ) -> None:
         """Notify all observers that pipeline is starting."""
         self._context = context
         self._meta = ObserverMeta(
             pipe_name=self._pipe_name,
+            run_id=run_id,
             started_at=time.time(),
         )
 

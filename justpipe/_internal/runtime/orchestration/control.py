@@ -35,11 +35,11 @@ class InvocationContext:
 
 @dataclass(frozen=True, slots=True)
 class StepCompleted:
-    # Logical owner key used for tracker/barrier accounting.
-    owner: str
-
     # Concrete step node name that finished.
     name: str
+
+    # Logical owner key used for tracker/barrier accounting.
+    owner: str
 
     # Step return value.
     result: Any

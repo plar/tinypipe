@@ -1,105 +1,101 @@
 """Export command for CLI."""
 
+from __future__ import annotations
+
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
-from justpipe.storage.interface import StorageBackend
+
+from justpipe.cli.formatting import resolve_or_exit
+from justpipe.cli.registry import PipelineRegistry
 
 
-def _datetime_serializer(obj: Any) -> str:
-    """JSON serializer for datetime objects."""
+def _json_serializer(obj: Any) -> str | float:
+    """JSON serializer for datetime/timedelta objects."""
     if isinstance(obj, datetime):
         return obj.isoformat()
+    if isinstance(obj, timedelta):
+        return obj.total_seconds()
     raise TypeError(f"type {type(obj)} not serializable")
 
 
-async def export_command(
-    storage: StorageBackend,
+def _export_events(events: list[Any]) -> list[dict[str, Any]]:
+    """Export events with per-event JSON parsing guard."""
+    exported: list[dict[str, Any]] = []
+    for event in events:
+        try:
+            event_data = json.loads(event.data)
+        except json.JSONDecodeError:
+            event_data = None
+        exported.append(
+            {
+                "seq": event.seq,
+                "event_type": event.event_type.value,
+                "step_name": event.step_name,
+                "timestamp": event.timestamp.isoformat(),
+                "data": event_data,
+            }
+        )
+    return exported
+
+
+def export_command(
+    registry: PipelineRegistry,
     run_id_prefix: str,
     output_file: str | None = None,
     format: str = "json",
 ) -> None:
-    """Export run data to file.
-
-    Args:
-        storage: Storage backend
-        run_id_prefix: Run identifier or prefix (min 4 chars)
-        output_file: Output file path (default: run_{run_id[:8]}.json)
-        format: Export format (only 'json' supported currently)
-    """
+    """Export run data to file."""
     if format != "json":
         print(f"Unsupported format: {format}")
         print("Supported formats: json")
         return
 
-    # Resolve prefix to full ID
-    try:
-        run = await storage.get_run_by_prefix(run_id_prefix)
-    except ValueError as e:
-        print(f"Error: {e}")
+    result = resolve_or_exit(registry, run_id_prefix)
+    if result is None:
         return
 
-    if run is None:
-        print(f"Run not found: {run_id_prefix}")
-        return
+    annotated, backend = result
+    run = annotated.run
 
-    # Get events
-    events = await storage.get_events(run.id)
+    events = backend.get_events(run.run_id)
 
-    # Build export data
-    # Note: timestamps are floats (UNIX timestamps), convert to ISO format
-    export_data = {
+    # Parse user_meta JSON
+    user_meta: Any = None
+    if run.user_meta:
+        try:
+            user_meta = json.loads(run.user_meta)
+        except json.JSONDecodeError:
+            user_meta = run.user_meta
+
+    export_data: dict[str, Any] = {
         "run": {
-            "id": run.id,
-            "pipeline_name": run.pipeline_name,
-            "status": run.status,
-            "start_time": run.start_time if run.start_time else None,
-            "start_time_iso": (
-                datetime.fromtimestamp(run.start_time).isoformat()
-                if run.start_time
-                else None
+            "id": run.run_id,
+            "pipeline_name": annotated.pipeline_name,
+            "pipeline_hash": annotated.pipeline_hash,
+            "status": run.status.value,
+            "start_time": run.start_time.isoformat(),
+            "end_time": run.end_time.isoformat() if run.end_time else None,
+            "duration_seconds": (
+                run.duration.total_seconds() if run.duration else None
             ),
-            "end_time": run.end_time if run.end_time else None,
-            "end_time_iso": (
-                datetime.fromtimestamp(run.end_time).isoformat()
-                if run.end_time
-                else None
-            ),
-            "metadata": run.metadata,
+            "error_message": run.error_message,
+            "error_step": run.error_step,
+            "user_meta": user_meta,
         },
-        "events": [
-            {
-                "id": event.id,
-                "run_id": event.run_id,
-                "event_type": event.event_type,
-                "step_name": event.step_name,
-                "timestamp": event.timestamp,
-                "timestamp_iso": datetime.fromtimestamp(event.timestamp).isoformat(),
-                "payload": event.payload,
-            }
-            for event in events
-        ],
+        "events": _export_events(events),
         "event_count": len(events),
         "exported_at": datetime.now().isoformat(),
     }
 
-    # Calculate duration if available
-    # Note: timestamps are floats, so subtraction gives duration directly
-    if run.start_time and run.end_time:
-        duration = run.end_time - run.start_time
-        run_data: Any = export_data["run"]
-        run_data["duration_seconds"] = duration
-
-    # Determine output filename
     if output_file is None:
-        output_file = f"run_{run.id[:8]}.json"
+        output_file = f"run_{run.run_id[:8]}.json"
 
-    # Write to file
     with open(output_file, "w") as f:
-        json.dump(export_data, f, indent=2, default=_datetime_serializer)
+        json.dump(export_data, f, indent=2, default=_json_serializer)
 
     print(f"Run exported to: {output_file}")
-    print(f"  Run ID: {run.id}")
-    print(f"  Pipeline: {run.pipeline_name}")
+    print(f"  Run ID: {run.run_id}")
+    print(f"  Pipeline: {annotated.pipeline_name}")
     print(f"  Events: {len(events)}")
-    print(f"  Status: {run.status}")
+    print(f"  Status: {run.status.value}")

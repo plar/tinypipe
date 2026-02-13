@@ -48,8 +48,8 @@ class _ResultHandler:
                 await self._failure_handler.handle_failure(
                     item.name,
                     item.owner,
-                    item.payload,
                     res.exception,
+                    item.payload,
                     state,
                     context,
                 )

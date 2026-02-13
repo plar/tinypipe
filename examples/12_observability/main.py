@@ -2,7 +2,7 @@
 
 This example demonstrates justpipe's comprehensive observability features:
 1. Real-time logging with EventLogger
-2. Persistent storage with StorageObserver
+2. Automatic persistence with persist=True
 3. Performance metrics with MetricsCollector
 4. Timeline visualization
 5. CLI tools for querying and analysis
@@ -17,10 +17,8 @@ from justpipe import Pipe
 from justpipe.observability import (
     EventLogger,
     MetricsCollector,
-    StorageObserver,
     TimelineVisualizer,
 )
-from justpipe.storage import SQLiteStorage
 
 
 @dataclass
@@ -33,16 +31,11 @@ class DocumentState:
     sentiment: str = ""
 
 
-# Create pipeline with multiple observers
-pipe = Pipe(DocumentState, name="document_processor")
+# Create pipeline with multiple observers and persistence enabled
+pipe = Pipe(DocumentState, name="document_processor", persist=True)
 
 # Real-time logging
 pipe.add_observer(EventLogger(level="INFO", sink=EventLogger.stderr_sink()))
-
-# Persistent storage
-storage = SQLiteStorage("~/.justpipe")
-storage_obs = StorageObserver(storage, save_initial_state=True)
-pipe.add_observer(storage_obs)
 
 # Metrics collection
 metrics = MetricsCollector(clock=time.time)
@@ -128,13 +121,6 @@ async def main():
     print(f"  Bottleneck: {bottleneck} ({bottleneck_pct:.1f}% of time)")
     print()
 
-    # Show storage info
-    run_id = storage_obs.get_run_id()
-    print("Stored in Database:")
-    print(f"  Run ID: {run_id[:12]}...")
-    print(f"  Storage: {storage.storage_dir}")
-    print()
-
     # Save timeline visualization
     timeline_file = Path(__file__).parent / "timeline.txt"
     with open(timeline_file, "w") as f:
@@ -152,12 +138,7 @@ async def main():
     print("CLI COMMANDS")
     print("=" * 70)
     print()
-    print("Query this run with CLI commands:")
-    print(f"  justpipe show {run_id[:8]}")
-    print(f"  justpipe timeline {run_id[:8]}")
-    print(f"  justpipe export {run_id[:8]}")
-    print()
-    print("list all runs:")
+    print("Query runs with CLI commands:")
     print("  justpipe list")
     print("  justpipe list --pipeline document_processor")
     print("  justpipe list --status success")

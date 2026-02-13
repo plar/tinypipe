@@ -18,6 +18,7 @@ from justpipe._internal.definition.registry_validator import _RegistryValidator
 
 if TYPE_CHECKING:
     from justpipe._internal.definition.steps import _BaseStep
+    from justpipe.observability import ObserverProtocol
 
 
 class _PipelineRegistry:
@@ -58,7 +59,7 @@ class _PipelineRegistry:
         self.startup_hooks: list[HookSpec] = []
         self.shutdown_hooks: list[HookSpec] = []
         self.error_hook: HookSpec | None = None
-        self.observers: list[Any] = []
+        self.observers: list[ObserverProtocol] = []
         self._frozen = False
 
     def freeze(self) -> None:
@@ -113,43 +114,39 @@ class _PipelineRegistry:
 
     # --- Hooks (kept directly) ---
 
-    def add_observer(self, observer: Any) -> None:
+    def _make_hook(
+        self,
+        func: Callable[..., Any],
+        expected_unknowns: int = 0,
+    ) -> HookSpec:
+        return HookSpec(
+            func=func,
+            injection_metadata=self._resolver.analyze_signature(
+                func,
+                self.state_type,
+                self.context_type,
+                expected_unknowns=expected_unknowns,
+            ),
+        )
+
+    def add_observer(self, observer: ObserverProtocol) -> None:
         """Add an observer to receive pipeline lifecycle events."""
         self._assert_mutable("add observers")
         self.observers.append(observer)
 
     def on_startup(self, func: Callable[..., Any]) -> Callable[..., Any]:
         self._assert_mutable("register startup hooks")
-        self.startup_hooks.append(
-            HookSpec(
-                func=func,
-                injection_metadata=self._resolver.analyze_signature(
-                    func, self.state_type, self.context_type, expected_unknowns=0
-                ),
-            )
-        )
+        self.startup_hooks.append(self._make_hook(func))
         return func
 
     def on_shutdown(self, func: Callable[..., Any]) -> Callable[..., Any]:
         self._assert_mutable("register shutdown hooks")
-        self.shutdown_hooks.append(
-            HookSpec(
-                func=func,
-                injection_metadata=self._resolver.analyze_signature(
-                    func, self.state_type, self.context_type, expected_unknowns=0
-                ),
-            )
-        )
+        self.shutdown_hooks.append(self._make_hook(func))
         return func
 
     def on_error(self, func: Callable[..., Any]) -> Callable[..., Any]:
         self._assert_mutable("register error hooks")
-        self.error_hook = HookSpec(
-            func=func,
-            injection_metadata=self._resolver.analyze_signature(
-                func, self.state_type, self.context_type, expected_unknowns=0
-            ),
-        )
+        self.error_hook = self._make_hook(func)
         return func
 
     # --- Finalization ---

@@ -44,6 +44,7 @@ class RunnerConfig(Generic[StateT, ContextT]):
     pipe_name: str = "Pipe"
     cancellation_token: CancellationToken | None = None
     failure_classification: FailureClassificationConfig | None = None
+    pipe_metadata: dict[str, Any] | None = None
 
 
 @dataclass(slots=True)

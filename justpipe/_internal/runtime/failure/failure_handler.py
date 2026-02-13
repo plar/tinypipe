@@ -30,8 +30,8 @@ class _FailureHandler:
         self,
         name: str,
         owner: str,
-        payload: dict[str, Any] | None,
         error: Exception,
+        payload: dict[str, Any] | None = None,
         state: Any | None = None,
         context: Any | None = None,
         track_owner: bool = True,
@@ -48,8 +48,8 @@ class _FailureHandler:
                     local_handler, error, name, state, context, is_global=False
                 )
                 await self._orchestrator.complete_step(
-                    owner=owner,
                     name=name,
+                    owner=owner,
                     result=res,
                     payload=payload,
                     track_owner=track_owner,
@@ -68,8 +68,8 @@ class _FailureHandler:
                     global_handler, error, name, state, context, is_global=True
                 )
                 await self._orchestrator.complete_step(
-                    owner=owner,
                     name=name,
+                    owner=owner,
                     result=res,
                     payload=payload,
                     track_owner=track_owner,
@@ -115,8 +115,8 @@ class _FailureHandler:
         invocation: InvocationContext | None = None,
     ) -> None:
         await self._orchestrator.fail_step(
-            owner=owner,
             name=name,
+            owner=owner,
             error=error,
             track_owner=track_owner,
             invocation=invocation,

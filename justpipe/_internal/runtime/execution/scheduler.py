@@ -70,13 +70,13 @@ class _Scheduler:
                     meta=meta,
                 )
                 await self._orchestrator.submit(RuntimeEvent(ev))
-            await self._orchestrator.complete_step(owner, name, None)
+            await self._orchestrator.complete_step(name, owner, None)
         except Exception as e:
             await self._failure_handler.handle_failure(
                 name,
                 owner,
-                None,
                 e,
+                None,
                 self._orchestrator.state,
                 context,
                 invocation=owner_invocation,

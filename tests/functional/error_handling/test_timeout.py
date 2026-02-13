@@ -23,65 +23,56 @@ async def test_pipeline_timeout_none_is_unlimited() -> None:
 
 
 @pytest.mark.asyncio
-async def test_pipeline_timeout_completes_before_timeout() -> None:
-    """Test that pipeline completes successfully if within timeout."""
+@pytest.mark.parametrize(
+    ("num_steps", "step_sleep", "timeout", "expected_status"),
+    [
+        pytest.param(
+            1,
+            0.01,
+            1.0,
+            PipelineTerminalStatus.SUCCESS,
+            id="single_step_within_timeout",
+        ),
+        pytest.param(
+            3,
+            0.01,
+            1.0,
+            PipelineTerminalStatus.SUCCESS,
+            id="multiple_steps_within_timeout",
+        ),
+        pytest.param(
+            2, 0.06, 0.1, PipelineTerminalStatus.TIMEOUT, id="total_exceeds_timeout"
+        ),
+    ],
+)
+async def test_pipeline_timeout_behavior(
+    num_steps: int,
+    step_sleep: float,
+    timeout: float,
+    expected_status: PipelineTerminalStatus,
+) -> None:
+    """Test timeout applies to entire pipeline duration, not per-step."""
     pipe: Pipe[Any, Any] = Pipe()
 
-    @pipe.step()
-    async def fast_step(state: Any) -> None:
-        await asyncio.sleep(0.01)
+    # Register chained steps dynamically
+    for i in range(num_steps):
+        name = f"step{i}"
+        next_name = f"step{i + 1}" if i < num_steps - 1 else None
 
-    events = [e async for e in pipe.run(None, timeout=1.0)]
-    finish_events = [e for e in events if e.type == EventType.FINISH]
-    assert len(finish_events) == 1
-    timeout_events = [e for e in events if e.type == EventType.TIMEOUT]
-    assert len(timeout_events) == 0
-    assert isinstance(finish_events[0].payload, PipelineEndData)
-    assert finish_events[0].payload.status == PipelineTerminalStatus.SUCCESS
+        @pipe.step(name, to=next_name)
+        async def step_fn(state: Any, _sleep: float = step_sleep) -> None:
+            await asyncio.sleep(_sleep)
 
-
-@pytest.mark.asyncio
-async def test_pipeline_timeout_with_multiple_steps() -> None:
-    """Test timeout with multiple fast steps."""
-    pipe: Pipe[Any, Any] = Pipe()
-
-    @pipe.step(to="step2")
-    async def step1(state: Any) -> None:
-        await asyncio.sleep(0.01)
-
-    @pipe.step(to="step3")
-    async def step2(state: Any) -> None:
-        await asyncio.sleep(0.01)
-
-    @pipe.step()
-    async def step3(state: Any) -> None:
-        await asyncio.sleep(0.01)
-
-    events = [e async for e in pipe.run(None, timeout=1.0)]
-    finish_events = [e for e in events if e.type == EventType.FINISH]
-    assert len(finish_events) == 1
-
-
-@pytest.mark.asyncio
-async def test_pipeline_timeout_is_total_not_per_step() -> None:
-    """Test that timeout applies to entire pipeline, not per-step."""
-    pipe: Pipe[Any, Any] = Pipe()
-
-    @pipe.step(to="step2")
-    async def step1(state: Any) -> None:
-        await asyncio.sleep(0.06)  # 60ms
-
-    @pipe.step()
-    async def step2(state: Any) -> None:
-        await asyncio.sleep(0.06)  # 60ms
-
-    # Total is ~120ms, timeout is 100ms - should timeout
-    events = [e async for e in pipe.run(None, timeout=0.1)]
-    timeout_events = [e for e in events if e.type == EventType.TIMEOUT]
-    assert timeout_events
-    finish = [e for e in events if e.type == EventType.FINISH][0]
+    events = [e async for e in pipe.run(None, timeout=timeout)]
+    finish = next(e for e in events if e.type == EventType.FINISH)
     assert isinstance(finish.payload, PipelineEndData)
-    assert finish.payload.status == PipelineTerminalStatus.TIMEOUT
+    assert finish.payload.status == expected_status
+
+    timeout_events = [e for e in events if e.type == EventType.TIMEOUT]
+    if expected_status == PipelineTerminalStatus.TIMEOUT:
+        assert len(timeout_events) > 0
+    else:
+        assert len(timeout_events) == 0
 
 
 @pytest.mark.asyncio

@@ -109,8 +109,8 @@ class _BarrierManager:
             await self._failure_handler.handle_failure(
                 name,
                 name,
-                None,
                 TimeoutError(f"Barrier timeout for step '{name}' after {timeout}s"),
+                None,
                 self._orchestrator.state,
                 self._orchestrator.context,
                 track_owner=False,

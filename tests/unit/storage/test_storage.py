@@ -1,159 +1,184 @@
-"""Consolidated tests for storage features."""
+"""Consolidated tests for storage backends."""
+
+from __future__ import annotations
 
 import tempfile
 from pathlib import Path
 
 import pytest
-from justpipe.storage import InMemoryStorage
-from justpipe.types import Event, EventType
+
+from justpipe.storage.memory import InMemoryBackend
+from justpipe.storage.sqlite import SQLiteBackend
+from justpipe.types import EventType, PipelineTerminalStatus
+from tests.factories import make_events, make_run
 
 
-async def test_resolve_run_id_full_id() -> None:
-    """Test resolving a full 32-character run ID."""
-    storage = InMemoryStorage()
+class TestInMemoryBackend:
+    def test_save_and_get_run(self) -> None:
+        backend = InMemoryBackend()
+        run = make_run()
+        backend.save_run(run, make_events())
+        result = backend.get_run("run1")
+        assert result is not None
+        assert result.run_id == "run1"
+        assert result.status == PipelineTerminalStatus.SUCCESS
 
-    # Create a run
-    run_id = await storage.create_run("test_pipeline", {})
+    def test_get_run_not_found(self) -> None:
+        backend = InMemoryBackend()
+        assert backend.get_run("missing") is None
 
-    # Resolve full ID
-    resolved = await storage.resolve_run_id(run_id)
-    assert resolved == run_id
+    def test_list_runs(self) -> None:
+        backend = InMemoryBackend()
+        backend.save_run(make_run("r1"), [])
+        backend.save_run(make_run("r2", PipelineTerminalStatus.FAILED), [])
+        assert len(backend.list_runs()) == 2
+        assert len(backend.list_runs(status=PipelineTerminalStatus.FAILED)) == 1
 
+    def test_list_runs_pagination(self) -> None:
+        backend = InMemoryBackend()
+        for i in range(5):
+            backend.save_run(make_run(f"r{i}"), [])
+        assert len(backend.list_runs(limit=2)) == 2
+        assert len(backend.list_runs(limit=2, offset=3)) == 2
 
-async def test_resolve_run_id_prefix() -> None:
-    """Test resolving a run ID prefix."""
-    storage = InMemoryStorage()
+    def test_get_events(self) -> None:
+        backend = InMemoryBackend()
+        backend.save_run(make_run(), make_events())
+        events = backend.get_events("run1")
+        assert len(events) == 4
+        assert events[0].event_type == EventType.START
 
-    # Create a run
-    run_id = await storage.create_run("test_pipeline", {})
+    def test_get_events_filtered(self) -> None:
+        backend = InMemoryBackend()
+        backend.save_run(make_run(), make_events())
+        events = backend.get_events("run1", event_type=EventType.STEP_START)
+        assert len(events) == 1
+        assert events[0].step_name == "step_a"
 
-    # Resolve prefix (8 chars)
-    resolved = await storage.resolve_run_id(run_id[:8])
-    assert resolved == run_id
+    def test_delete_run(self) -> None:
+        backend = InMemoryBackend()
+        backend.save_run(make_run(), make_events())
+        assert backend.delete_run("run1") is True
+        assert backend.get_run("run1") is None
+        assert backend.delete_run("run1") is False
 
-    # Resolve prefix (4 chars - minimum)
-    resolved = await storage.resolve_run_id(run_id[:4])
-    assert resolved == run_id
+    def test_find_runs_by_prefix_matches(self) -> None:
+        backend = InMemoryBackend()
+        backend.save_run(make_run("run-abc-123"), [])
+        backend.save_run(make_run("run-abc-456"), [])
+        backend.save_run(make_run("run-xyz-789"), [])
+        matches = backend.find_runs_by_prefix("run-abc")
+        assert len(matches) == 2
+        assert all(r.run_id.startswith("run-abc") for r in matches)
 
+    def test_find_runs_by_prefix_no_match(self) -> None:
+        backend = InMemoryBackend()
+        backend.save_run(make_run("run-abc-123"), [])
+        assert backend.find_runs_by_prefix("run-xyz") == []
 
-async def test_resolve_run_id_too_short() -> None:
-    """Test that prefix must be at least 4 characters."""
-    storage = InMemoryStorage()
-
-    # Create a run
-    await storage.create_run("test_pipeline", {})
-
-    # 3 chars should fail
-    with pytest.raises(ValueError, match="at least 4 characters"):
-        await storage.resolve_run_id("abc")
-
-
-async def test_resolve_run_id_not_found() -> None:
-    """Test resolving non-existent run ID."""
-    storage = InMemoryStorage()
-
-    # Create a run
-    await storage.create_run("test_pipeline", {})
-
-    # Try to resolve non-existent prefix
-    resolved = await storage.resolve_run_id("zzzz")
-    assert resolved is None
-
-
-async def test_resolve_run_id_multiple_matches() -> None:
-    """Test error when prefix matches multiple runs."""
-    storage = InMemoryStorage()
-
-    # This is unlikely in practice with random UUIDs, but let's test the logic
-    # We'll use InMemoryStorage and manually create runs with specific IDs
-
-    # For this test, we'll just verify the error message is correct
-    # In practice, UUIDs are random enough that collisions are rare
-
-    # Create multiple runs
-    run1_id = await storage.create_run("pipeline1", {})
-    await storage.create_run("pipeline2", {})
-
-    # If first 4 chars match (extremely unlikely), it should raise an error
-    # For now, just test that a valid prefix works
-    resolved = await storage.resolve_run_id(run1_id[:8])
-    assert resolved == run1_id
-
-
-async def test_get_run_by_prefix() -> None:
-    """Test convenience method for getting run by prefix."""
-    storage = InMemoryStorage()
-
-    # Create a run
-    run_id = await storage.create_run("test_pipeline", {"key": "value"})
-
-    # Get by prefix
-    run = await storage.get_run_by_prefix(run_id[:8])
-    assert run is not None
-    assert run.id == run_id
-    assert run.pipeline_name == "test_pipeline"
-
-    # Get by full ID
-    run = await storage.get_run_by_prefix(run_id)
-    assert run is not None
-    assert run.id == run_id
+    def test_find_runs_by_prefix_respects_limit(self) -> None:
+        backend = InMemoryBackend()
+        for i in range(5):
+            backend.save_run(make_run(f"run-{i}"), [])
+        matches = backend.find_runs_by_prefix("run-", limit=2)
+        assert len(matches) == 2
 
 
-async def test_get_run_by_prefix_not_found() -> None:
-    """Test get_run_by_prefix returns None for non-existent prefix."""
-    storage = InMemoryStorage()
+class TestSQLiteBackend:
+    def test_save_and_get_run(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            backend = SQLiteBackend(Path(tmpdir) / "runs.db")
+            run = make_run()
+            backend.save_run(run, make_events())
+            result = backend.get_run("run1")
+            assert result is not None
+            assert result.run_id == "run1"
+            assert result.status == PipelineTerminalStatus.SUCCESS
 
-    # Create a run
-    await storage.create_run("test_pipeline", {})
+    def test_get_run_not_found(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            backend = SQLiteBackend(Path(tmpdir) / "runs.db")
+            assert backend.get_run("missing") is None
 
-    # Try non-existent prefix
-    run = await storage.get_run_by_prefix("zzzzzzzz")
-    assert run is None
+    def test_list_runs_with_status_filter(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            backend = SQLiteBackend(Path(tmpdir) / "runs.db")
+            backend.save_run(make_run("r1"), [])
+            backend.save_run(make_run("r2", PipelineTerminalStatus.FAILED), [])
+            assert len(backend.list_runs()) == 2
+            assert len(backend.list_runs(status=PipelineTerminalStatus.SUCCESS)) == 1
+            assert len(backend.list_runs(status=PipelineTerminalStatus.FAILED)) == 1
 
+    def test_get_events(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            backend = SQLiteBackend(Path(tmpdir) / "runs.db")
+            backend.save_run(make_run(), make_events())
+            events = backend.get_events("run1")
+            assert len(events) == 4
 
-async def test_get_run_by_prefix_too_short() -> None:
-    """Test get_run_by_prefix raises error for short prefix."""
-    storage = InMemoryStorage()
+    def test_get_events_filtered_by_type(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            backend = SQLiteBackend(Path(tmpdir) / "runs.db")
+            backend.save_run(make_run(), make_events())
+            events = backend.get_events("run1", event_type=EventType.STEP_START)
+            assert len(events) == 1
+            assert events[0].step_name == "step_a"
 
-    # Create a run
-    await storage.create_run("test_pipeline", {})
+    def test_delete_run_cascades(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            backend = SQLiteBackend(Path(tmpdir) / "runs.db")
+            backend.save_run(make_run(), make_events())
+            assert backend.delete_run("run1") is True
+            assert backend.get_run("run1") is None
+            assert backend.get_events("run1") == []
+            assert backend.delete_run("run1") is False
 
-    # Too short
-    with pytest.raises(ValueError, match="at least 4 characters"):
-        await storage.get_run_by_prefix("abc")
+    def test_generated_columns(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            backend = SQLiteBackend(Path(tmpdir) / "runs.db")
+            backend.save_run(make_run(), make_events())
+            events = backend.get_events("run1")
+            assert events[0].event_type == EventType.START
+            assert events[1].event_type == EventType.STEP_START
+            assert events[1].step_name == "step_a"
 
+    def test_find_runs_by_prefix_matches(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            backend = SQLiteBackend(Path(tmpdir) / "runs.db")
+            backend.save_run(make_run("run-abc-123"), [])
+            backend.save_run(make_run("run-abc-456"), [])
+            backend.save_run(make_run("run-xyz-789"), [])
+            matches = backend.find_runs_by_prefix("run-abc")
+            assert len(matches) == 2
+            assert all(r.run_id.startswith("run-abc") for r in matches)
 
-async def test_sqlite_delete_run_cascades_events() -> None:
-    """Deleting a run should also remove its events via FK cascade."""
-    pytest.importorskip("aiosqlite")
-    from justpipe.storage.sqlite import SQLiteStorage
+    def test_find_runs_by_prefix_no_match(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            backend = SQLiteBackend(Path(tmpdir) / "runs.db")
+            backend.save_run(make_run("run-abc-123"), [])
+            assert backend.find_runs_by_prefix("run-xyz") == []
 
-    with tempfile.TemporaryDirectory() as tmpdir:
-        storage = SQLiteStorage(tmpdir)
-        run_id = await storage.create_run("pipeline", {})
-        await storage.add_event(run_id, Event(EventType.START, "system", {}))
-        await storage.add_event(run_id, Event(EventType.STEP_START, "step_a", None))
+    def test_find_runs_by_prefix_respects_limit(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            backend = SQLiteBackend(Path(tmpdir) / "runs.db")
+            for i in range(5):
+                backend.save_run(make_run(f"run-{i}"), [])
+            matches = backend.find_runs_by_prefix("run-", limit=2)
+            assert len(matches) == 2
 
-        assert len(await storage.get_events(run_id)) == 2
+    def test_find_runs_by_prefix_rejects_invalid_chars(self) -> None:
+        with tempfile.TemporaryDirectory() as tmpdir:
+            backend = SQLiteBackend(Path(tmpdir) / "runs.db")
+            backend.save_run(make_run("run-abc"), [])
+            assert backend.find_runs_by_prefix("run%") == []
+            assert backend.find_runs_by_prefix("run;DROP") == []
+            assert backend.find_runs_by_prefix("") == []
 
-        deleted = await storage.delete_run(run_id)
-        assert deleted is True
-        assert await storage.get_run(run_id) is None
-        assert await storage.get_events(run_id) == []
-
-
-async def test_sqlite_delete_run_removes_artifacts_directory() -> None:
-    """Deleting a run should also remove its artifact directory."""
-    pytest.importorskip("aiosqlite")
-    from justpipe.storage.sqlite import SQLiteStorage
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        storage = SQLiteStorage(tmpdir)
-        run_id = await storage.create_run("pipeline", {})
-        await storage.save_artifact(run_id, "payload.bin", b"abc")
-
-        artifact_dir = Path(tmpdir) / "artifacts" / run_id
-        assert artifact_dir.exists()
-
-        assert await storage.delete_run(run_id) is True
-        assert not artifact_dir.exists()
+    def test_atomic_save(self) -> None:
+        """If event insertion fails, run should not be saved."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            backend = SQLiteBackend(Path(tmpdir) / "runs.db")
+            bad_events = ["not valid json"]
+            with pytest.raises(Exception):
+                backend.save_run(make_run(), bad_events)
+            assert backend.get_run("run1") is None

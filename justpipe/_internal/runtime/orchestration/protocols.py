@@ -98,8 +98,8 @@ class StepCompletionPort(Protocol):
 
     async def complete_step(
         self,
-        owner: str,
         name: str,
+        owner: str,
         result: Any,
         payload: dict[str, Any] | None = None,
         track_owner: bool = True,
@@ -114,8 +114,8 @@ class StepFailurePort(Protocol):
 
     async def fail_step(
         self,
-        owner: str,
         name: str,
+        owner: str,
         error: Exception,
         track_owner: bool = True,
         invocation: "InvocationContext | None" = None,
@@ -147,6 +147,27 @@ class StopPort(Protocol):
     """Stop further scheduling/execution."""
 
     def stop(self) -> None: ...
+
+
+@runtime_checkable
+class CoordinatorOrchestrator(
+    EventEmitPort,
+    StepCompletionPort,
+    StateContextView,
+    Protocol,
+):
+    """Narrow contract required by _StepExecutionCoordinator."""
+
+    async def handle_execution_failure(
+        self,
+        name: str,
+        owner: str,
+        error: Exception,
+        payload: dict[str, Any] | None,
+        state: Any,
+        context: Any,
+        invocation: "InvocationContext | None" = None,
+    ) -> None: ...
 
 
 @runtime_checkable

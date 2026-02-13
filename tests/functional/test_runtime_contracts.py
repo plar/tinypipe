@@ -3,16 +3,9 @@
 from collections.abc import AsyncGenerator
 from typing import Any
 
-import asyncio
 import pytest
 
 from justpipe import DefinitionError, EventType, Pipe
-from justpipe.types import (
-    FailureKind,
-    FailureReason,
-    PipelineEndData,
-    PipelineTerminalStatus,
-)
 
 
 async def process_data(data: str) -> str:
@@ -33,55 +26,6 @@ async def test_streaming_execution(state: Any) -> None:
         if event.type == EventType.TOKEN:
             tokens.append(event.payload)
     assert tokens == ["a", "b"]
-
-
-@pytest.mark.asyncio
-async def test_step_not_found(state: Any) -> None:
-    pipe: Pipe[Any, Any] = Pipe()
-
-    @pipe.step("start", to="non_existent")
-    async def start() -> None:
-        pass
-
-    with pytest.raises(DefinitionError, match="targets unknown step 'non_existent'"):
-        async for _ in pipe.run(state):
-            pass
-
-
-@pytest.mark.asyncio
-async def test_step_timeout_execution() -> None:
-    pipe: Pipe[Any, Any] = Pipe()
-    release = asyncio.Event()
-
-    @pipe.step("slow", timeout=0.1)
-    async def slow() -> None:
-        await release.wait()
-
-    events: list[Any] = []
-    async for ev in pipe.run(None):
-        if ev.type == EventType.STEP_ERROR:
-            events.append(ev)
-
-    assert len(events) == 1
-    assert "timed out" in str(events[0].payload)
-
-
-@pytest.mark.asyncio
-async def test_empty_pipeline() -> None:
-    """Empty pipeline should yield ERROR and FINISH, not crash."""
-    pipe: Pipe[Any, Any] = Pipe()
-    events: list[Any] = [e async for e in pipe.run({})]
-
-    assert len(events) >= 2
-    error_events = [e for e in events if e.type == EventType.STEP_ERROR]
-    assert len(error_events) == 1
-    assert "No steps registered" in error_events[0].payload
-    assert events[-1].type == EventType.FINISH
-    finish = events[-1]
-    assert isinstance(finish.payload, PipelineEndData)
-    assert finish.payload.status is PipelineTerminalStatus.FAILED
-    assert finish.payload.failure_kind is FailureKind.VALIDATION
-    assert finish.payload.reason == FailureReason.NO_STEPS.value
 
 
 @pytest.mark.asyncio

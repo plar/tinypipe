@@ -1,39 +1,68 @@
-from typing import Any
+"""Tests for CLI main.py dispatch — verifies Click handlers delegate correctly."""
 
-import pytest
+from typing import Any
+from unittest.mock import MagicMock
+
 from click.testing import CliRunner
 
 import justpipe.cli.main as cli_main
 
 
-@pytest.mark.parametrize(
-    "argv",
-    [
-        ["list"],
-        ["show", "abcd1234"],
-        ["timeline", "abcd1234", "--format", "ascii"],
-        ["compare", "run1", "run2"],
-        ["export", "abcd1234", "--format", "json"],
-        ["cleanup", "--older-than", "7", "--dry-run"],
-        ["stats", "--days", "7"],
-    ],
-)
-def test_click_command_wrappers_delegate_to_asyncio_run(
-    monkeypatch: Any, argv: list[str]
+def test_click_commands_delegate_to_sync_functions(
+    monkeypatch: Any,
 ) -> None:
-    calls: list[Any] = []
+    """Each Click command should call get_registry() and delegate to a sync command function."""
+    calls: list[tuple[str, tuple[Any, ...]]] = []
 
-    def fake_run(coro: Any) -> None:
-        calls.append(coro)
-        coro.close()
+    fake_registry = MagicMock()
+    monkeypatch.setattr(cli_main, "get_registry", lambda: fake_registry)
 
-    monkeypatch.setattr("justpipe.cli.main.asyncio.run", fake_run)
+    def make_fake(name: str) -> Any:
+        def fake(*args: Any) -> None:
+            calls.append((name, args))
+
+        return fake
+
+    monkeypatch.setattr("justpipe.cli.commands.list.list_command", make_fake("list"))
+    monkeypatch.setattr("justpipe.cli.commands.show.show_command", make_fake("show"))
+    monkeypatch.setattr(
+        "justpipe.cli.commands.timeline.timeline_command", make_fake("timeline")
+    )
+    monkeypatch.setattr(
+        "justpipe.cli.commands.compare.compare_command", make_fake("compare")
+    )
+    monkeypatch.setattr(
+        "justpipe.cli.commands.export.export_command", make_fake("export")
+    )
+    monkeypatch.setattr(
+        "justpipe.cli.commands.cleanup.cleanup_command", make_fake("cleanup")
+    )
+    monkeypatch.setattr("justpipe.cli.commands.stats.stats_command", make_fake("stats"))
+    monkeypatch.setattr(
+        "justpipe.cli.commands.pipelines.pipelines_command", make_fake("pipelines")
+    )
 
     runner = CliRunner()
-    result = runner.invoke(cli_main.cli, argv)
 
-    assert result.exit_code == 0
-    assert len(calls) == 1
+    cases = [
+        (["list"], "list"),
+        (["show", "abcd1234"], "show"),
+        (["timeline", "abcd1234", "--format", "ascii"], "timeline"),
+        (["compare", "run1", "run2"], "compare"),
+        (["export", "abcd1234", "--format", "json"], "export"),
+        (["cleanup", "--older-than", "7", "--dry-run"], "cleanup"),
+        (["stats", "--days", "7"], "stats"),
+        (["pipelines"], "pipelines"),
+    ]
+
+    for argv, expected_name in cases:
+        calls.clear()
+        result = runner.invoke(cli_main.cli, argv)
+        assert result.exit_code == 0, f"{argv}: {result.output}"
+        assert len(calls) == 1, f"{argv}: expected 1 call, got {len(calls)}"
+        assert calls[0][0] == expected_name
+        # First arg is always the registry
+        assert calls[0][1][0] is fake_registry
 
 
 def test_main_invokes_cli_entrypoint(monkeypatch: Any) -> None:
@@ -48,69 +77,12 @@ def test_main_invokes_cli_entrypoint(monkeypatch: Any) -> None:
     assert called["value"] is True
 
 
-def test_get_storage_builds_sqlite_storage(monkeypatch: Any, tmp_path: Any) -> None:
-    class DummyStorage:
-        def __init__(self, path: str):
-            self.path = path
+def test_get_registry_returns_pipeline_registry(
+    monkeypatch: Any, tmp_path: Any
+) -> None:
+    from justpipe.cli.registry import PipelineRegistry
 
     monkeypatch.setattr(cli_main, "get_storage_dir", lambda: tmp_path)
-    monkeypatch.setattr("justpipe.storage.SQLiteStorage", DummyStorage)
 
-    storage = cli_main.get_storage()
-    assert isinstance(storage, DummyStorage)
-    assert storage.path == str(tmp_path)
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("func_name", "command_path", "args"),
-    [
-        (
-            "list_runs",
-            "justpipe.cli.commands.list.list_command",
-            ("p", "success", 5, True),
-        ),
-        ("show_run", "justpipe.cli.commands.show.show_command", ("run-1",)),
-        (
-            "timeline_run",
-            "justpipe.cli.commands.timeline.timeline_command",
-            ("run-1", "ascii"),
-        ),
-        (
-            "compare_runs_cli",
-            "justpipe.cli.commands.compare.compare_command",
-            ("run-1", "run-2"),
-        ),
-        (
-            "export_run",
-            "justpipe.cli.commands.export.export_command",
-            ("run-1", "out.json", "json"),
-        ),
-        (
-            "cleanup_runs",
-            "justpipe.cli.commands.cleanup.cleanup_command",
-            (7, "error", 3, True),
-        ),
-        ("show_stats", "justpipe.cli.commands.stats.stats_command", ("p", 14)),
-    ],
-)
-async def test_async_cli_helpers_delegate_to_command_functions(
-    monkeypatch: Any,
-    func_name: str,
-    command_path: str,
-    args: tuple[Any, ...],
-) -> None:
-    storage = object()
-    calls: list[tuple[Any, ...]] = []
-
-    async def fake_command(*inner_args: Any) -> None:
-        calls.append(inner_args)
-
-    monkeypatch.setattr(cli_main, "get_storage", lambda: storage)
-    monkeypatch.setattr(command_path, fake_command)
-
-    target = getattr(cli_main, func_name)
-    await target(*args)
-
-    assert len(calls) == 1
-    assert calls[0][0] is storage
+    registry = cli_main.get_registry()
+    assert isinstance(registry, PipelineRegistry)

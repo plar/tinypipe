@@ -95,8 +95,8 @@ class _Orchestrator(Generic[StateT, ContextT], TaskOrchestrator[StateT, ContextT
     # --- StepCompletionPort ---
     async def complete_step(
         self,
-        owner: str,
         name: str,
+        owner: str,
         result: Any,
         payload: dict[str, Any] | None = None,
         track_owner: bool = True,
@@ -118,14 +118,14 @@ class _Orchestrator(Generic[StateT, ContextT], TaskOrchestrator[StateT, ContextT
     # --- StepFailurePort ---
     async def fail_step(
         self,
-        owner: str,
         name: str,
+        owner: str,
         error: Exception,
         track_owner: bool = True,
         invocation: InvocationContext | None = None,
     ) -> None:
         await self._step_execution.fail_step(
-            owner, name, error, track_owner, invocation=invocation
+            name, owner, error, track_owner, invocation=invocation
         )
 
     # --- StopPort ---
@@ -194,17 +194,17 @@ class _Orchestrator(Generic[StateT, ContextT], TaskOrchestrator[StateT, ContextT
     def map_worker_finished(self, owner: str, target: str) -> None:
         self._metrics.record_map_worker_finished(owner, target)
 
-    # --- Internal ---
-    async def _handle_execution_failure(
+    # --- FailureEscalationPort ---
+    async def handle_execution_failure(
         self,
         name: str,
         owner: str,
-        payload: dict[str, Any] | None,
         error: Exception,
+        payload: dict[str, Any] | None,
         state: StateT | None,
         context: ContextT | None,
         invocation: InvocationContext | None = None,
     ) -> None:
         await self._failure_handler.handle_failure(
-            name, owner, payload, error, state, context, invocation=invocation
+            name, owner, error, payload, state, context, invocation=invocation
         )

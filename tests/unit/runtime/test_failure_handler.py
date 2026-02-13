@@ -20,8 +20,8 @@ async def test_failure_handler_basic_reporting(
     await handler.handle_failure(
         name="test_step",
         owner="test_step",
-        payload=None,
         error=error,
+        payload=None,
         state=None,
         context=None,
     )
@@ -53,7 +53,7 @@ async def test_failure_handler_local_escalation(
 
     error = ValueError("Initial")
     await handler.handle_failure(
-        name="test_step", owner="test_step", payload={"data": 1}, error=error
+        name="test_step", owner="test_step", error=error, payload={"data": 1}
     )
 
     # Should call local handler and submit result
@@ -75,8 +75,8 @@ async def test_failure_handler_logging_uses_standard_timestamp(
         await handler.handle_failure(
             name="test_step",
             owner="test_step",
-            payload=None,
             error=ValueError("Boom"),
+            payload=None,
             state={"x": 1},
             context=None,
         )

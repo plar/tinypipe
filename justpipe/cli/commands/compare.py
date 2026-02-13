@@ -1,38 +1,39 @@
 """Compare command for CLI."""
 
-from justpipe.storage.interface import StorageBackend
+from __future__ import annotations
+
+from justpipe.cli.formatting import resolve_or_exit
+from justpipe.cli.registry import PipelineRegistry
 from justpipe.observability.compare import compare_runs, format_comparison
 
 
-async def compare_command(
-    storage: StorageBackend,
+def compare_command(
+    registry: PipelineRegistry,
     run1_id_prefix: str,
     run2_id_prefix: str,
 ) -> None:
-    """Compare two pipeline runs.
+    """Compare two pipeline runs."""
+    result1 = resolve_or_exit(registry, run1_id_prefix)
+    if result1 is None:
+        return
 
-    Args:
-        storage: Storage backend
-        run1_id_prefix: First run ID or prefix (baseline)
-        run2_id_prefix: Second run ID or prefix (comparison)
-    """
-    try:
-        # Resolve prefixes to full IDs
-        run1_id = await storage.resolve_run_id(run1_id_prefix)
-        if not run1_id:
-            print(f"Error: Run not found: {run1_id_prefix}")
-            return
+    result2 = resolve_or_exit(registry, run2_id_prefix)
+    if result2 is None:
+        return
 
-        run2_id = await storage.resolve_run_id(run2_id_prefix)
-        if not run2_id:
-            print(f"Error: Run not found: {run2_id_prefix}")
-            return
+    annotated1, backend1 = result1
+    annotated2, backend2 = result2
 
-        comparison = await compare_runs(storage, run1_id, run2_id)
-        output = format_comparison(comparison)
-        print(output)
+    events1 = backend1.get_events(annotated1.run.run_id)
+    events2 = backend2.get_events(annotated2.run.run_id)
 
-    except ValueError as e:
-        print(f"Error: {e}")
-    except Exception as e:
-        print(f"Unexpected error: {e}")
+    comparison = compare_runs(
+        annotated1.run,
+        events1,
+        annotated2.run,
+        events2,
+        pipeline1_name=annotated1.pipeline_name,
+        pipeline2_name=annotated2.pipeline_name,
+    )
+    output = format_comparison(comparison)
+    print(output)

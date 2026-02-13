@@ -1,24 +1,13 @@
 """Storage backends for persisting pipeline runs and events."""
 
-from justpipe.storage.interface import StorageBackend, StoredRun, StoredEvent
-from justpipe.storage.memory import InMemoryStorage
+from justpipe.storage.interface import RunRecord, StorageBackend, StoredEvent
+from justpipe.storage.memory import InMemoryBackend
+from justpipe.storage.sqlite import SQLiteBackend
 
-# SQLiteStorage requires aiosqlite (optional dependency)
-try:
-    from justpipe.storage.sqlite import SQLiteStorage
-
-    __all__ = [
-        "StorageBackend",
-        "StoredRun",
-        "StoredEvent",
-        "SQLiteStorage",
-        "InMemoryStorage",
-    ]
-except ImportError:
-    # aiosqlite not installed
-    __all__ = [
-        "StorageBackend",
-        "StoredRun",
-        "StoredEvent",
-        "InMemoryStorage",
-    ]
+__all__ = [
+    "InMemoryBackend",
+    "RunRecord",
+    "SQLiteBackend",
+    "StorageBackend",
+    "StoredEvent",
+]

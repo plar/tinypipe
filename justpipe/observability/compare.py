@@ -1,7 +1,11 @@
 """Run comparison utilities for analyzing differences between pipeline executions."""
 
+from __future__ import annotations
+
 from dataclasses import dataclass
-from justpipe.storage.interface import StorageBackend, StoredRun
+
+from justpipe.storage.interface import RunRecord, StoredEvent
+from justpipe.types import EventType
 
 
 @dataclass
@@ -10,8 +14,8 @@ class RunComparison:
 
     run1_id: str
     run2_id: str
-    run1: StoredRun
-    run2: StoredRun
+    pipeline1_name: str
+    pipeline2_name: str
 
     duration_diff: float  # run2 - run1 (positive = run2 slower)
     status_same: bool
@@ -24,45 +28,42 @@ class RunComparison:
     event_count_diff: int  # run2 - run1
 
 
-def _calculate_duration(run: StoredRun) -> float:
+def _calculate_duration(run: RunRecord) -> float:
     """Calculate run duration in seconds."""
-    if run.end_time and run.start_time:
-        # Both are floats (UNIX timestamps)
-        return run.end_time - run.start_time
+    if run.duration is not None:
+        return run.duration.total_seconds()
     return 0.0
 
 
-async def compare_runs(
-    storage: StorageBackend,
-    run1_id: str,
-    run2_id: str,
+def _build_step_times(events: list[StoredEvent]) -> dict[str, float]:
+    """Build a step-name → duration mapping from stored events."""
+    step_starts: dict[str, float] = {}
+    step_times: dict[str, float] = {}
+
+    for event in events:
+        step_name = event.step_name or "unknown"
+        if event.event_type == EventType.STEP_START:
+            step_starts[step_name] = event.timestamp.timestamp()
+            step_times.setdefault(step_name, 0.0)
+        elif event.event_type == EventType.STEP_END and step_name in step_starts:
+            duration = event.timestamp.timestamp() - step_starts[step_name]
+            step_times[step_name] = duration
+
+    return step_times
+
+
+def compare_runs(
+    run1: RunRecord,
+    events1: list[StoredEvent],
+    run2: RunRecord,
+    events2: list[StoredEvent],
+    pipeline1_name: str = "",
+    pipeline2_name: str = "",
 ) -> RunComparison:
-    """Compare two pipeline runs.
+    """Compare two pipeline runs (pure sync function).
 
-    Args:
-        storage: Storage backend
-        run1_id: First run ID (baseline)
-        run2_id: Second run ID (comparison)
-
-    Returns:
-        RunComparison object with detailed differences
-
-    Raises:
-        ValueError: If either run is not found
+    Data loading is the caller's responsibility.
     """
-    # Load runs
-    run1 = await storage.get_run(run1_id)
-    run2 = await storage.get_run(run2_id)
-
-    if run1 is None:
-        raise ValueError(f"Run not found: {run1_id}")
-    if run2 is None:
-        raise ValueError(f"Run not found: {run2_id}")
-
-    # Load events
-    events1 = await storage.get_events(run1_id)
-    events2 = await storage.get_events(run2_id)
-
     # Calculate durations
     duration1 = _calculate_duration(run1)
     duration2 = _calculate_duration(run2)
@@ -70,49 +71,15 @@ async def compare_runs(
 
     # Check status and pipeline
     status_same = run1.status == run2.status
-    pipeline_same = run1.pipeline_name == run2.pipeline_name
+    pipeline_same = pipeline1_name == pipeline2_name
 
     # Build step timing maps
-    step_times1: dict[str, float] = {}
-    step_times2: dict[str, float] = {}
-
-    # Track step_start events to calculate durations
-    for event in events1:
-        if event.event_type == "step_start":
-            step_name = event.step_name or "unknown"
-            step_times1[step_name] = 0.0
-
-    for event in events2:
-        if event.event_type == "step_start":
-            step_name = event.step_name or "unknown"
-            step_times2[step_name] = 0.0
-
-    # Calculate step durations from step_start/step_end pairs
-    # Note: event.timestamp is a float (UNIX timestamp)
-    step_starts1: dict[str, float] = {}
-    for event in events1:
-        step_name = event.step_name or "unknown"
-        if event.event_type == "step_start":
-            step_starts1[step_name] = event.timestamp
-        elif event.event_type == "step_end" and step_name in step_starts1:
-            # Both timestamps are floats, so delta is already in seconds
-            duration = event.timestamp - step_starts1[step_name]
-            step_times1[step_name] = duration
-
-    step_starts2: dict[str, float] = {}
-    for event in events2:
-        step_name = event.step_name or "unknown"
-        if event.event_type == "step_start":
-            step_starts2[step_name] = event.timestamp
-        elif event.event_type == "step_end" and step_name in step_starts2:
-            # Both timestamps are floats, so delta is already in seconds
-            duration = event.timestamp - step_starts2[step_name]
-            step_times2[step_name] = duration
+    step_times1 = _build_step_times(events1)
+    step_times2 = _build_step_times(events2)
 
     # Calculate differences
     all_steps = set(step_times1.keys()) | set(step_times2.keys())
     step_timing_diff = {}
-
     for step in all_steps:
         time1 = step_times1.get(step, 0.0)
         time2 = step_times2.get(step, 0.0)
@@ -124,10 +91,10 @@ async def compare_runs(
     event_count_diff = len(events2) - len(events1)
 
     return RunComparison(
-        run1_id=run1_id,
-        run2_id=run2_id,
-        run1=run1,
-        run2=run2,
+        run1_id=run1.run_id,
+        run2_id=run2.run_id,
+        pipeline1_name=pipeline1_name,
+        pipeline2_name=pipeline2_name,
         duration_diff=duration_diff,
         status_same=status_same,
         pipeline_same=pipeline_same,
@@ -139,15 +106,8 @@ async def compare_runs(
 
 
 def format_comparison(comparison: RunComparison) -> str:
-    """Format comparison as human-readable text.
-
-    Args:
-        comparison: RunComparison object
-
-    Returns:
-        Formatted string report
-    """
-    lines = []
+    """Format comparison as human-readable text."""
+    lines: list[str] = []
     lines.append("Run Comparison")
     lines.append("=" * 60)
     lines.append("")
@@ -160,37 +120,27 @@ def format_comparison(comparison: RunComparison) -> str:
     # Basic info
     if not comparison.pipeline_same:
         lines.append(
-            f"Pipeline: {comparison.run1.pipeline_name} → {comparison.run2.pipeline_name}"
+            f"Pipeline: {comparison.pipeline1_name} → {comparison.pipeline2_name}"
         )
     else:
-        lines.append(f"Pipeline: {comparison.run1.pipeline_name}")
+        lines.append(f"Pipeline: {comparison.pipeline1_name}")
 
     if not comparison.status_same:
-        lines.append(f"Status:   {comparison.run1.status} → {comparison.run2.status}")
+        lines.append("Status:   changed")
     else:
-        lines.append(f"Status:   {comparison.run1.status}")
+        lines.append("Status:   same")
 
     lines.append("")
 
     # Duration
-    duration1 = _calculate_duration(comparison.run1)
-    duration2 = _calculate_duration(comparison.run2)
-
     if comparison.duration_diff > 0:
-        duration_str = (
-            f"Duration: {duration1:.3f}s → {duration2:.3f}s "
-            f"(+{comparison.duration_diff:.3f}s slower)"
-        )
+        duration_str = f"Duration change: +{comparison.duration_diff:.3f}s (slower)"
     elif comparison.duration_diff < 0:
-        duration_str = (
-            f"Duration: {duration1:.3f}s → {duration2:.3f}s "
-            f"({comparison.duration_diff:.3f}s faster)"
-        )
+        duration_str = f"Duration change: {comparison.duration_diff:.3f}s (faster)"
     else:
-        duration_str = f"Duration: {duration1:.3f}s → {duration2:.3f}s (same)"
+        duration_str = "Duration change: none"
 
     lines.append(duration_str)
-
     lines.append("")
 
     # Step timing differences
@@ -198,7 +148,6 @@ def format_comparison(comparison: RunComparison) -> str:
         lines.append("Step Timing Differences:")
         lines.append("")
 
-        # Sort by absolute difference (largest first)
         sorted_steps = sorted(
             comparison.step_timing_diff.items(),
             key=lambda x: abs(x[1]),
@@ -210,7 +159,7 @@ def format_comparison(comparison: RunComparison) -> str:
                 lines.append(f"  + {step:<30} (new step)")
             elif step in comparison.removed_steps:
                 lines.append(f"  - {step:<30} (removed)")
-            elif abs(diff) > 0.001:  # Only show meaningful differences
+            elif abs(diff) > 0.001:
                 sign = "+" if diff > 0 else ""
                 lines.append(f"  ~ {step:<30} {sign}{diff:.3f}s")
 

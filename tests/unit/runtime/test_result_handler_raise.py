@@ -27,8 +27,8 @@ async def test_raise_with_exception_delegates_to_failure_handler() -> None:
     )
 
     item = StepCompleted(
-        owner="step",
         name="step",
+        owner="step",
         result=Raise(RuntimeError("boom")),
         payload={"k": "v"},
     )
@@ -55,7 +55,7 @@ async def test_raise_without_exception_is_noop() -> None:
         steps={"step": _StandardStep(name="step", func=_noop)},
     )
 
-    item = StepCompleted(owner="step", name="step", result=Raise(None), payload=None)
+    item = StepCompleted(name="step", owner="step", result=Raise(None), payload=None)
     events = [
         event async for event in handler.process_step_result(item, state={}, context={})
     ]

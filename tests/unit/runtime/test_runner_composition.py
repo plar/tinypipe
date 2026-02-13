@@ -11,6 +11,7 @@ from justpipe._internal.runtime.engine.composition import (
     build_runner_deps,
 )
 from justpipe._internal.definition.steps import _BaseStep, _StandardStep
+from tests.unit.runtime.conftest import single_step_config
 from justpipe._internal.runtime.orchestration.control import (
     InvocationContext,
     StepCompleted,
@@ -45,13 +46,7 @@ def _single_edge_config() -> RunnerConfig[Any, Any]:
 
 
 def _single_step_config() -> RunnerConfig[Any, Any]:
-    return RunnerConfig(
-        steps={"entry": _StandardStep(name="entry", func=lambda: None)},
-        topology={},
-        injection_metadata={},
-        startup_hooks=[],
-        shutdown_hooks=[],
-    )
+    return single_step_config()
 
 
 async def _no_step_events(
@@ -170,8 +165,8 @@ async def test_handle_result_deferred_owner_emits_worker_and_owner_terminal() ->
         event
         async for event in runner._handle_result(
             StepCompleted(
-                owner="map_owner",
                 name="map_owner",
+                owner="map_owner",
                 result=_Map(items=[1], target="worker"),
                 invocation=owner_invocation,
             )
@@ -181,8 +176,8 @@ async def test_handle_result_deferred_owner_emits_worker_and_owner_terminal() ->
         event
         async for event in runner._handle_result(
             StepCompleted(
-                owner="map_owner",
                 name="worker",
+                owner="map_owner",
                 result=None,
                 invocation=worker_invocation,
             )
@@ -232,8 +227,8 @@ async def test_handle_result_already_terminal_suppresses_duplicate_owner_end() -
         event
         async for event in runner._handle_result(
             StepCompleted(
-                owner="owner",
                 name="owner",
+                owner="owner",
                 result=None,
                 invocation=InvocationContext("owner-inv"),
                 already_terminal=True,
@@ -260,8 +255,8 @@ async def test_handle_result_track_owner_false_skips_barrier_accounting() -> Non
         event
         async for event in runner._handle_result(
             StepCompleted(
-                owner="owner",
                 name="worker",
+                owner="owner",
                 result=None,
                 track_owner=False,
                 invocation=InvocationContext(

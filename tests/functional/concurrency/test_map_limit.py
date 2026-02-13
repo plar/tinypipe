@@ -2,8 +2,12 @@ import pytest
 from typing import Any
 from collections.abc import AsyncGenerator
 from justpipe import Pipe, EventType
+from justpipe._internal.definition.steps import _MapStep
 
 pytestmark = pytest.mark.slow
+
+# Reference the actual production default instead of hardcoding
+_DEFAULT_LIMIT = _MapStep.DEFAULT_MAX_ITEMS
 
 
 @pytest.mark.asyncio
@@ -16,8 +20,7 @@ async def test_map_async_gen_limit_default() -> None:
 
     @pipe.map(each="worker")
     async def source(state: dict[str, Any]) -> AsyncGenerator[int, None]:
-        # Return async generator with more than default 100k items
-        for i in range(100_001):
+        for i in range(_DEFAULT_LIMIT + 1):
             yield i
 
     @pipe.step()
@@ -26,22 +29,19 @@ async def test_map_async_gen_limit_default() -> None:
 
     events = [e async for e in pipe.run({})]
 
-    # Should find a STEP_ERROR event
     error_event = next((e for e in events if e.type == EventType.STEP_ERROR), None)
     assert error_event is not None
-    assert "async generator exceeded maximum of 100000 items" in str(
-        error_event.payload
-    )
+    assert f"exceeded maximum of {_DEFAULT_LIMIT} items" in str(error_event.payload)
 
 
 @pytest.mark.asyncio
 async def test_map_async_gen_limit_configurable() -> None:
-    # set limit to 10
-    pipe: Pipe[dict[str, Any], Any] = Pipe(dict, max_map_items=10)
+    custom_limit = 10
+    pipe: Pipe[dict[str, Any], Any] = Pipe(dict, max_map_items=custom_limit)
 
     @pipe.map(each="worker")
     async def source(state: dict[str, Any]) -> AsyncGenerator[int, None]:
-        for i in range(11):
+        for i in range(custom_limit + 1):
             yield i
 
     @pipe.step()
@@ -52,7 +52,7 @@ async def test_map_async_gen_limit_configurable() -> None:
 
     error_event = next((e for e in events if e.type == EventType.STEP_ERROR), None)
     assert error_event is not None
-    assert "async generator exceeded maximum of 10 items" in str(error_event.payload)
+    assert f"exceeded maximum of {custom_limit} items" in str(error_event.payload)
 
 
 @pytest.mark.asyncio

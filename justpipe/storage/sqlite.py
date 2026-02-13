@@ -1,419 +1,226 @@
-"""SQLite storage backend for local pipeline observability."""
+"""SQLite storage backend using stdlib sqlite3 (zero dependencies)."""
+
+from __future__ import annotations
 
 import json
-import time
-import uuid
-from contextlib import asynccontextmanager
+import re
+import sqlite3
+from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any
 
-try:
-    import aiosqlite
-except ImportError:
-    raise ImportError(
-        "aiosqlite is required for SQLite storage. "
-        "Install it with: pip install justpipe[observability]"
-    )
+from justpipe.storage.interface import RunRecord, StoredEvent
+from justpipe.types import EventType, PipelineTerminalStatus
 
-from justpipe.storage.interface import StorageBackend, StoredEvent, StoredRun
-from justpipe.types import Event, EventType
+_SCHEMA = """\
+PRAGMA foreign_keys = ON;
+PRAGMA journal_mode = WAL;
+
+CREATE TABLE IF NOT EXISTS runs (
+    run_id TEXT PRIMARY KEY,
+    start_time REAL NOT NULL,
+    end_time REAL,
+    duration_s REAL,
+    status TEXT,
+    error_message TEXT,
+    error_step TEXT,
+    user_meta TEXT,
+    created_at REAL DEFAULT (unixepoch())
+);
+
+CREATE TABLE IF NOT EXISTS events (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    run_id TEXT NOT NULL REFERENCES runs(run_id) ON DELETE CASCADE,
+    seq INTEGER NOT NULL,
+    timestamp REAL NOT NULL,
+    data TEXT NOT NULL,
+    event_type TEXT GENERATED ALWAYS AS (json_extract(data, '$.type')) STORED,
+    step_name TEXT GENERATED ALWAYS AS (json_extract(data, '$.stage')) STORED,
+    node_kind TEXT GENERATED ALWAYS AS (json_extract(data, '$.node_kind')) STORED,
+    attempt INTEGER GENERATED ALWAYS AS (json_extract(data, '$.attempt')) STORED
+);
+
+CREATE INDEX IF NOT EXISTS idx_runs_time ON runs(start_time DESC);
+CREATE INDEX IF NOT EXISTS idx_runs_status ON runs(status, start_time DESC);
+CREATE INDEX IF NOT EXISTS idx_events_run_seq ON events(run_id, seq);
+CREATE INDEX IF NOT EXISTS idx_events_type ON events(run_id, event_type);
+CREATE INDEX IF NOT EXISTS idx_events_step ON events(run_id, step_name, event_type);
+"""
 
 
-class SQLiteStorage(StorageBackend):
-    """SQLite-based storage backend for local development and debugging.
+class SQLiteBackend:
+    """SQLite-based storage backend using stdlib sqlite3.
 
-    Stores runs and events in a SQLite database, with artifacts saved as
-    separate files. Suitable for single-machine deployments.
-
-    Storage structure:
-        ~/.justpipe/
-        ├── runs.db (SQLite database)
-        └── artifacts/
-            ├── <run_id>/
-            │   ├── initial_state.json
-            │   └── ...
-            └── ...
-
-    Example:
-        storage = SQLiteStorage("~/.justpipe")
-
-        # Create run
-        run_id = await storage.create_run("my_pipeline")
-
-        # Add events
-        await storage.add_event(run_id, event)
-
-        # Query runs
-        runs = await storage.list_runs(status="success")
+    Each instance is scoped to one pipeline directory.
     """
 
-    def __init__(self, storage_dir: str = "~/.justpipe"):
-        """Initialize SQLite storage.
+    def __init__(self, db_path: str | Path) -> None:
+        self._db_path = Path(db_path)
+        self._db_path.parent.mkdir(parents=True, exist_ok=True)
+        self._init_schema()
 
-        Args:
-            storage_dir: Directory for database and artifacts
-        """
-        self.storage_dir = Path(storage_dir).expanduser()
-        self.db_path = self.storage_dir / "runs.db"
-        self.artifacts_dir = self.storage_dir / "artifacts"
-
-        # Create directories
-        self.storage_dir.mkdir(parents=True, exist_ok=True)
-        self.artifacts_dir.mkdir(parents=True, exist_ok=True)
-
-        # Initialize database (synchronous, only done once)
-        import sqlite3
-
-        conn = sqlite3.connect(self.db_path)
-        self._init_db_sync(conn)
-        conn.close()
-
-    def _init_db_sync(self, conn: Any) -> None:
-        """Initialize database schema (synchronous, called once at startup)."""
-        conn.execute("PRAGMA journal_mode=WAL")  # Enable WAL for better concurrency
-        conn.execute("PRAGMA foreign_keys=ON")
-
-        # Create runs table
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS runs (
-                id TEXT PRIMARY KEY,
-                pipeline_name TEXT NOT NULL,
-                start_time REAL NOT NULL,
-                end_time REAL,
-                duration REAL,
-                status TEXT DEFAULT 'running',
-                error_message TEXT,
-                metadata TEXT,
-                created_at REAL DEFAULT (julianday('now'))
-            )
-        """
-        )
-
-        # Create indexes
-        conn.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_runs_pipeline
-            ON runs(pipeline_name, start_time DESC)
-        """
-        )
-        conn.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_runs_status
-            ON runs(status, start_time DESC)
-        """
-        )
-
-        # Create events table
-        conn.execute(
-            """
-            CREATE TABLE IF NOT EXISTS events (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                run_id TEXT NOT NULL,
-                timestamp REAL NOT NULL,
-                event_type TEXT NOT NULL,
-                step_name TEXT,
-                payload TEXT,
-                metadata TEXT,
-                FOREIGN KEY (run_id) REFERENCES runs(id) ON DELETE CASCADE
-            )
-        """
-        )
-
-        # Create event indexes
-        conn.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_events_run_id
-            ON events(run_id, timestamp)
-        """
-        )
-        conn.execute(
-            """
-            CREATE INDEX IF NOT EXISTS idx_events_type
-            ON events(run_id, event_type)
-        """
-        )
-
-        conn.commit()
-
-    @asynccontextmanager
-    async def _connect(self) -> Any:
-        """Create a connection with foreign key constraints enabled."""
-        conn = await aiosqlite.connect(self.db_path)
-        await conn.execute("PRAGMA foreign_keys=ON")
+    def _init_schema(self) -> None:
+        conn = sqlite3.connect(self._db_path)
         try:
-            yield conn
+            conn.executescript(_SCHEMA)
         finally:
-            await conn.close()
+            conn.close()
 
-    def _serialize_data(self, data: Any) -> str:
-        """Serialize data to JSON string."""
+    def _connect(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(self._db_path)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON")
+        return conn
+
+    def save_run(self, run: RunRecord, events: list[str]) -> None:
+        conn = self._connect()
         try:
-            return json.dumps(data, default=str)
-        except Exception:
-            return json.dumps(str(data))
-
-    def _deserialize_data(self, data_str: str | None) -> Any:
-        """Deserialize JSON string to data."""
-        if data_str is None:
-            return None
-        try:
-            return json.loads(data_str)
-        except Exception:
-            return data_str
-
-    async def create_run(
-        self,
-        pipeline_name: str,
-        metadata: dict[str, Any] | None = None,
-    ) -> str:
-        """Create a new pipeline run."""
-        run_id = uuid.uuid4().hex
-        start_time = time.time()
-
-        async with self._connect() as conn:
-            await conn.execute(
-                """
-                INSERT INTO runs (id, pipeline_name, start_time, metadata)
-                VALUES (?, ?, ?, ?)
-                """,
+            conn.execute(
+                """INSERT INTO runs
+                   (run_id, start_time, end_time, duration_s, status,
+                    error_message, error_step, user_meta)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
-                    run_id,
-                    pipeline_name,
-                    start_time,
-                    self._serialize_data(metadata or {}),
+                    run.run_id,
+                    run.start_time.timestamp(),
+                    run.end_time.timestamp() if run.end_time else None,
+                    run.duration.total_seconds() if run.duration else None,
+                    run.status.value,
+                    run.error_message,
+                    run.error_step,
+                    run.user_meta,
                 ),
             )
-            await conn.commit()
-
-        # Create artifacts directory for this run
-        run_artifacts_dir = self.artifacts_dir / run_id
-        run_artifacts_dir.mkdir(parents=True, exist_ok=True)
-
-        return run_id
-
-    async def update_run(
-        self,
-        run_id: str,
-        status: str | None = None,
-        end_time: float | None = None,
-        duration: float | None = None,
-        error_message: str | None = None,
-    ) -> None:
-        """Update an existing run."""
-        updates = []
-        params: list[Any] = []
-
-        if status is not None:
-            updates.append("status = ?")
-            params.append(status)
-
-        if end_time is not None:
-            updates.append("end_time = ?")
-            params.append(end_time)
-
-        if duration is not None:
-            updates.append("duration = ?")
-            params.append(duration)
-
-        if error_message is not None:
-            updates.append("error_message = ?")
-            params.append(error_message)
-
-        if not updates:
-            return
-
-        params.append(run_id)
-        query = f"UPDATE runs SET {', '.join(updates)} WHERE id = ?"
-
-        async with self._connect() as conn:
-            await conn.execute(query, params)
-            await conn.commit()
-
-    async def add_event(
-        self,
-        run_id: str,
-        event: Event,
-    ) -> None:
-        """Add an event to a run."""
-        async with self._connect() as conn:
-            await conn.execute(
-                """
-                INSERT INTO events (run_id, timestamp, event_type, step_name, payload)
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                (
-                    run_id,
-                    event.timestamp,
-                    event.type.value,
-                    event.stage,
-                    self._serialize_data(event.payload),
-                ),
-            )
-            await conn.commit()
-
-    async def get_run(self, run_id: str) -> StoredRun | None:
-        """Get a run by ID."""
-        async with self._connect() as conn:
-            conn.row_factory = aiosqlite.Row
-            async with conn.execute(
-                """
-                SELECT id, pipeline_name, start_time, end_time, duration,
-                       status, error_message, metadata
-                FROM runs
-                WHERE id = ?
-                """,
-                (run_id,),
-            ) as cursor:
-                row = await cursor.fetchone()
-
-                if row is None:
-                    return None
-
-                return StoredRun(
-                    id=row["id"],
-                    pipeline_name=row["pipeline_name"],
-                    start_time=row["start_time"],
-                    end_time=row["end_time"],
-                    duration=row["duration"],
-                    status=row["status"],
-                    error_message=row["error_message"],
-                    metadata=self._deserialize_data(row["metadata"]),
+            for seq, data in enumerate(events, start=1):
+                parsed = json.loads(data)
+                conn.execute(
+                    """INSERT INTO events (run_id, seq, timestamp, data)
+                       VALUES (?, ?, ?, ?)""",
+                    (run.run_id, seq, parsed.get("timestamp", 0), data),
                 )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
 
-    async def list_runs(
+    def get_run(self, run_id: str) -> RunRecord | None:
+        conn = self._connect()
+        try:
+            row = conn.execute(
+                "SELECT * FROM runs WHERE run_id = ?", (run_id,)
+            ).fetchone()
+            if row is None:
+                return None
+            return self._row_to_run(row)
+        finally:
+            conn.close()
+
+    def list_runs(
         self,
-        pipeline_name: str | None = None,
-        status: str | None = None,
+        status: PipelineTerminalStatus | None = None,
         limit: int = 100,
         offset: int = 0,
-    ) -> list[StoredRun]:
-        """list runs with optional filtering."""
-        conditions = []
-        params: list[Any] = []
+    ) -> list[RunRecord]:
+        conn = self._connect()
+        try:
+            if status is not None:
+                rows = conn.execute(
+                    "SELECT * FROM runs WHERE status = ? ORDER BY start_time DESC LIMIT ? OFFSET ?",
+                    (status.value, limit, offset),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT * FROM runs ORDER BY start_time DESC LIMIT ? OFFSET ?",
+                    (limit, offset),
+                ).fetchall()
+            return [self._row_to_run(r) for r in rows]
+        finally:
+            conn.close()
 
-        if pipeline_name is not None:
-            conditions.append("pipeline_name = ?")
-            params.append(pipeline_name)
-
-        if status is not None:
-            conditions.append("status = ?")
-            params.append(status)
-
-        where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
-
-        query = f"""
-            SELECT id, pipeline_name, start_time, end_time, duration,
-                   status, error_message, metadata
-            FROM runs
-            {where_clause}
-            ORDER BY start_time DESC
-            LIMIT ? OFFSET ?
-        """
-        params.extend([limit, offset])
-
-        async with self._connect() as conn:
-            conn.row_factory = aiosqlite.Row
-            async with conn.execute(query, params) as cursor:
-                rows = await cursor.fetchall()
-
-                return [
-                    StoredRun(
-                        id=row["id"],
-                        pipeline_name=row["pipeline_name"],
-                        start_time=row["start_time"],
-                        end_time=row["end_time"],
-                        duration=row["duration"],
-                        status=row["status"],
-                        error_message=row["error_message"],
-                        metadata=self._deserialize_data(row["metadata"]),
-                    )
-                    for row in rows
-                ]
-
-    async def get_events(
+    def get_events(
         self,
         run_id: str,
-        event_types: list[EventType] | None = None,
+        event_type: EventType | None = None,
     ) -> list[StoredEvent]:
-        """Get events for a run."""
-        query = """
-            SELECT id, run_id, timestamp, event_type, step_name, payload, metadata
-            FROM events
-            WHERE run_id = ?
-        """
-        params: list[Any] = [run_id]
+        conn = self._connect()
+        try:
+            if event_type is not None:
+                rows = conn.execute(
+                    "SELECT seq, timestamp, event_type, step_name, data "
+                    "FROM events WHERE run_id = ? AND event_type = ? ORDER BY seq ASC",
+                    (run_id, event_type.value),
+                ).fetchall()
+            else:
+                rows = conn.execute(
+                    "SELECT seq, timestamp, event_type, step_name, data "
+                    "FROM events WHERE run_id = ? ORDER BY seq ASC",
+                    (run_id,),
+                ).fetchall()
+            return [self._row_to_event(r) for r in rows]
+        finally:
+            conn.close()
 
-        if event_types is not None:
-            placeholders = ", ".join("?" * len(event_types))
-            query += f" AND event_type IN ({placeholders})"
-            params.extend([et.value for et in event_types])
+    _RUN_ID_SAFE = re.compile(r"^[a-zA-Z0-9\-_]+$")
 
-        query += " ORDER BY timestamp ASC"
+    def find_runs_by_prefix(
+        self, run_id_prefix: str, limit: int = 10
+    ) -> list[RunRecord]:
+        if not run_id_prefix or not self._RUN_ID_SAFE.match(run_id_prefix):
+            return []
+        conn = self._connect()
+        try:
+            escaped = (
+                run_id_prefix.replace("\\", "\\\\")
+                .replace("%", "\\%")
+                .replace("_", "\\_")
+            )
+            rows = conn.execute(
+                "SELECT * FROM runs WHERE run_id LIKE ? ESCAPE '\\' ORDER BY start_time DESC LIMIT ?",
+                (escaped + "%", limit),
+            ).fetchall()
+            return [self._row_to_run(r) for r in rows]
+        finally:
+            conn.close()
 
-        async with self._connect() as conn:
-            conn.row_factory = aiosqlite.Row
-            async with conn.execute(query, params) as cursor:
-                rows = await cursor.fetchall()
+    def delete_run(self, run_id: str) -> bool:
+        conn = self._connect()
+        try:
+            cursor = conn.execute("DELETE FROM runs WHERE run_id = ?", (run_id,))
+            conn.commit()
+            return cursor.rowcount > 0
+        finally:
+            conn.close()
 
-                return [
-                    StoredEvent(
-                        id=row["id"],
-                        run_id=row["run_id"],
-                        timestamp=row["timestamp"],
-                        event_type=row["event_type"],
-                        step_name=row["step_name"],
-                        payload=self._deserialize_data(row["payload"]),
-                        metadata=self._deserialize_data(row["metadata"]),
-                    )
-                    for row in rows
-                ]
+    @staticmethod
+    def _row_to_run(row: sqlite3.Row) -> RunRecord:
+        return RunRecord(
+            run_id=row["run_id"],
+            start_time=datetime.fromtimestamp(row["start_time"]),
+            end_time=(
+                datetime.fromtimestamp(row["end_time"])
+                if row["end_time"] is not None
+                else None
+            ),
+            duration=(
+                timedelta(seconds=row["duration_s"])
+                if row["duration_s"] is not None
+                else None
+            ),
+            status=PipelineTerminalStatus(row["status"])
+            if row["status"]
+            else PipelineTerminalStatus.SUCCESS,
+            error_message=row["error_message"],
+            error_step=row["error_step"],
+            user_meta=row["user_meta"],
+        )
 
-    async def delete_run(self, run_id: str) -> bool:
-        """Delete a run and its events."""
-        async with self._connect() as conn:
-            cursor = await conn.execute("DELETE FROM runs WHERE id = ?", (run_id,))
-            deleted = bool(cursor.rowcount > 0)
-            await conn.commit()
-
-            # Delete artifacts
-            if deleted:
-                run_artifacts_dir = self.artifacts_dir / run_id
-                if run_artifacts_dir.exists():
-                    import shutil
-
-                    shutil.rmtree(run_artifacts_dir)
-
-            return deleted
-
-    async def save_artifact(
-        self,
-        run_id: str,
-        name: str,
-        data: bytes,
-    ) -> str:
-        """Save a binary artifact."""
-        run_artifacts_dir = self.artifacts_dir / run_id
-        run_artifacts_dir.mkdir(parents=True, exist_ok=True)
-
-        artifact_path = run_artifacts_dir / name
-
-        # Write file
-        with open(artifact_path, "wb") as f:
-            f.write(data)
-
-        return str(artifact_path)
-
-    async def load_artifact(
-        self,
-        run_id: str,
-        name: str,
-    ) -> bytes | None:
-        """Load a binary artifact."""
-        artifact_path = self.artifacts_dir / run_id / name
-
-        if not artifact_path.exists():
-            return None
-
-        with open(artifact_path, "rb") as f:
-            return f.read()
+    @staticmethod
+    def _row_to_event(row: sqlite3.Row) -> StoredEvent:
+        return StoredEvent(
+            seq=row["seq"],
+            timestamp=datetime.fromtimestamp(row["timestamp"]),
+            event_type=EventType(row["event_type"]),
+            step_name=row["step_name"] or "",
+            data=row["data"],
+        )

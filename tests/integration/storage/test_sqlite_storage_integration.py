@@ -1,108 +1,137 @@
+"""Integration tests for SQLiteBackend."""
+
+from __future__ import annotations
+
+import sqlite3
 import tempfile
+from datetime import datetime
+from pathlib import Path
 
 import pytest
 
-from justpipe.types import Event, EventType
+from justpipe.storage.sqlite import SQLiteBackend
+from justpipe.types import PipelineTerminalStatus
+from tests.factories import make_events, make_run
 
 
-@pytest.mark.asyncio
-async def test_sqlite_update_run_noop_when_no_fields_provided() -> None:
-    pytest.importorskip("aiosqlite")
-    from justpipe.storage.sqlite import SQLiteStorage
-
+def test_sqlite_pagination() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
-        storage = SQLiteStorage(tmpdir)
-        run_id = await storage.create_run("pipeline", {"meta": "v"})
+        backend = SQLiteBackend(Path(tmpdir) / "runs.db")
+        for i in range(5):
+            backend.save_run(
+                make_run(
+                    f"r{i}",
+                    start_time=datetime(2025, 1, 1, i, 0, 0),
+                    end_time=datetime(2025, 1, 1, i, 0, 5),
+                ),
+                [],
+            )
+        runs = backend.list_runs(limit=2)
+        assert len(runs) == 2
+        runs = backend.list_runs(limit=2, offset=3)
+        assert len(runs) == 2
 
-        before = await storage.get_run(run_id)
-        assert before is not None
-        assert before.status == "running"
 
-        await storage.update_run(run_id)
-
-        after = await storage.get_run(run_id)
-        assert after is not None
-        assert after.status == "running"
-
-
-@pytest.mark.asyncio
-async def test_sqlite_list_runs_filters_offset_and_event_type_filter() -> None:
-    pytest.importorskip("aiosqlite")
-    from justpipe.storage.sqlite import SQLiteStorage
-
+def test_sqlite_run_with_error() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
-        storage = SQLiteStorage(tmpdir)
-
-        run1 = await storage.create_run("pipeline", {"idx": 1})
-        run2 = await storage.create_run("pipeline", {"idx": 2})
-        run3 = await storage.create_run("other", {"idx": 3})
-
-        await storage.update_run(run1, status="success", end_time=1.0, duration=1.0)
-        await storage.update_run(
-            run2,
-            status="error",
-            end_time=2.0,
-            duration=2.0,
-            error_message="boom",
+        backend = SQLiteBackend(Path(tmpdir) / "runs.db")
+        run = make_run(
+            "err1",
+            status=PipelineTerminalStatus.FAILED,
+            error_message="step exploded",
+            error_step="step_a",
         )
-        await storage.update_run(run3, status="success", end_time=3.0, duration=3.0)
-
-        filtered = await storage.list_runs(pipeline_name="pipeline", status="success")
-        assert len(filtered) == 1
-        assert filtered[0].id == run1
-
-        paged = await storage.list_runs(limit=1, offset=1)
-        assert len(paged) == 1
-
-        await storage.add_event(run1, Event(EventType.START, "system", {"k": 1}))
-        await storage.add_event(run1, Event(EventType.STEP_END, "step", {"k": 2}))
-
-        only_start = await storage.get_events(run1, event_types=[EventType.START])
-        assert len(only_start) == 1
-        assert only_start[0].event_type == "start"
+        backend.save_run(run, make_events())
+        result = backend.get_run("err1")
+        assert result is not None
+        assert result.status == PipelineTerminalStatus.FAILED
+        assert result.error_message == "step exploded"
+        assert result.error_step == "step_a"
 
 
-@pytest.mark.asyncio
-async def test_sqlite_delete_missing_run_and_missing_artifact() -> None:
-    pytest.importorskip("aiosqlite")
-    from justpipe.storage.sqlite import SQLiteStorage
-
+def test_sqlite_user_meta_stored() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
-        storage = SQLiteStorage(tmpdir)
+        backend = SQLiteBackend(Path(tmpdir) / "runs.db")
+        run = make_run(
+            "meta1",
+            user_meta='{"run": {"data": {"key": "val"}}}',
+        )
+        backend.save_run(run, [])
+        result = backend.get_run("meta1")
+        assert result is not None
+        assert result.user_meta == '{"run": {"data": {"key": "val"}}}'
 
-        assert await storage.delete_run("missing") is False
-        assert await storage.load_artifact("missing", "not-found.bin") is None
+
+# ---------------------------------------------------------------------------
+# SQLite error path tests
+# ---------------------------------------------------------------------------
 
 
-@pytest.mark.asyncio
-async def test_sqlite_serialization_and_deserialization_fallbacks() -> None:
-    pytest.importorskip("aiosqlite")
-    from justpipe.storage.sqlite import SQLiteStorage
-
-    class BadStr:
-        def __str__(self) -> str:
-            raise RuntimeError("boom")
-
+def test_sqlite_corrupt_db_raises_on_init() -> None:
+    """Corrupt database file raises on schema initialization."""
     with tempfile.TemporaryDirectory() as tmpdir:
-        storage = SQLiteStorage(tmpdir)
+        db_path = Path(tmpdir) / "runs.db"
+        db_path.write_bytes(b"this is not a sqlite database")
 
-        run_id = await storage.create_run("pipeline", {"bad": BadStr()})
+        with pytest.raises(sqlite3.DatabaseError):
+            SQLiteBackend(db_path)
 
-        # Force invalid JSON in run metadata and event payload to trigger deserialize fallback
-        async with storage._connect() as conn:
-            await conn.execute(
-                "UPDATE runs SET metadata = ? WHERE id = ?", ("{", run_id)
-            )
-            await conn.execute(
-                "INSERT INTO events (run_id, timestamp, event_type, step_name, payload) VALUES (?, ?, ?, ?, ?)",
-                (run_id, 1.0, "start", "system", "{"),
-            )
-            await conn.commit()
 
-        run = await storage.get_run(run_id)
-        assert run is not None
-        assert str(run.metadata) == "{"
+def test_sqlite_duplicate_run_id_raises() -> None:
+    """Inserting a run with a duplicate ID raises IntegrityError."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        backend = SQLiteBackend(Path(tmpdir) / "runs.db")
+        backend.save_run(make_run("dup-1"), [])
 
-        events = await storage.get_events(run_id)
-        assert events
-        assert events[0].payload == "{"
+        with pytest.raises(sqlite3.IntegrityError):
+            backend.save_run(make_run("dup-1"), [])
+
+
+def test_sqlite_malformed_event_json_rolls_back() -> None:
+    """Malformed JSON in events causes rollback — run is not saved."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        backend = SQLiteBackend(Path(tmpdir) / "runs.db")
+        with pytest.raises(Exception):
+            backend.save_run(make_run("bad-json"), ["{not valid json}"])
+        assert backend.get_run("bad-json") is None
+
+
+@pytest.mark.parametrize(
+    ("run_id", "create_run"),
+    [
+        pytest.param("empty-run", True, id="empty_run"),
+        pytest.param("does-not-exist", False, id="nonexistent_run"),
+    ],
+)
+def test_sqlite_get_events_returns_empty(run_id: str, create_run: bool) -> None:
+    """Run with zero events or nonexistent run returns empty list."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        backend = SQLiteBackend(Path(tmpdir) / "runs.db")
+        if create_run:
+            backend.save_run(make_run(run_id), [])
+        assert backend.get_events(run_id) == []
+
+
+def test_sqlite_delete_cascades_events() -> None:
+    """Deleting a run also removes its events (FK cascade)."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        backend = SQLiteBackend(Path(tmpdir) / "runs.db")
+        backend.save_run(make_run("cascade"), make_events())
+        assert len(backend.get_events("cascade")) > 0
+
+        backend.delete_run("cascade")
+        assert backend.get_events("cascade") == []
+
+
+def test_sqlite_read_only_after_close() -> None:
+    """Backend creates new connections per operation, so separate instances work."""
+    with tempfile.TemporaryDirectory() as tmpdir:
+        db_path = Path(tmpdir) / "runs.db"
+        backend1 = SQLiteBackend(db_path)
+        backend1.save_run(make_run("shared"), make_events())
+
+        # Second instance reads same data
+        backend2 = SQLiteBackend(db_path)
+        result = backend2.get_run("shared")
+        assert result is not None
+        assert result.run_id == "shared"

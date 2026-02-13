@@ -110,8 +110,8 @@ class FakeOrchestrator(TaskOrchestrator[Any, Any]):
 
     async def complete_step(
         self,
-        owner: str,
         name: str,
+        owner: str,
         result: Any,
         payload: dict[str, Any] | None = None,
         track_owner: bool = True,
@@ -120,8 +120,8 @@ class FakeOrchestrator(TaskOrchestrator[Any, Any]):
     ) -> None:
         self.submissions.append(
             StepCompleted(
-                owner,
                 name,
+                owner,
                 result,
                 payload,
                 track_owner=track_owner,
@@ -132,8 +132,8 @@ class FakeOrchestrator(TaskOrchestrator[Any, Any]):
 
     async def fail_step(
         self,
-        owner: str,
         name: str,
+        owner: str,
         error: Exception,
         track_owner: bool = True,
         invocation: InvocationContext | None = None,

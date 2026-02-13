@@ -2,12 +2,12 @@
 
 import asyncio
 from typing import Any
-from unittest.mock import AsyncMock
+from unittest.mock import ANY, AsyncMock
 
 import pytest
 
-from justpipe._internal.definition.steps import _StandardStep
 from justpipe._internal.runtime.engine.composition import RunnerConfig, build_runner
+from tests.unit.runtime.conftest import single_step_config
 from justpipe._internal.runtime.engine.run_state import _RunPhase
 from justpipe.types import (
     Event,
@@ -34,18 +34,8 @@ async def _empty_stream() -> Any:
         yield None
 
 
-async def _noop_step() -> None:
-    return None
-
-
 def _single_step_config() -> RunnerConfig[Any, Any]:
-    return RunnerConfig(
-        steps={"entry": _StandardStep(name="entry", func=_noop_step)},
-        topology={},
-        injection_metadata={},
-        startup_hooks=[],
-        shutdown_hooks=[],
-    )
+    return single_step_config()
 
 
 @pytest.mark.asyncio
@@ -122,6 +112,7 @@ async def test_startup_phase_uses_explicit_start_target_and_notifies_start() -> 
     runner._events.notify_start.assert_awaited_once_with(
         runner._ctx.state,
         runner._ctx.context,
+        run_id=ANY,
     )
     runner._lifecycle.execute_startup.assert_awaited_once_with(
         runner._ctx.state,

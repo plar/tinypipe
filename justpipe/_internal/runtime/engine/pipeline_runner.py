@@ -36,6 +36,7 @@ from justpipe._internal.runtime.execution.step_error_store import _StepErrorStor
 from justpipe._internal.runtime.execution.step_execution_coordinator import (
     _StepExecutionCoordinator,
 )
+from justpipe._internal.runtime.meta import detect_and_init_meta
 from justpipe._internal.types import _Map, _Run
 from justpipe._internal.shared.utils import _resolve_name
 from justpipe.types import (
@@ -67,6 +68,7 @@ class _PipelineRunner(Generic[StateT, ContextT]):
 
         self._pipe_name = config.pipe_name
         self._cancellation_token = config.cancellation_token
+        self._pipe_metadata = config.pipe_metadata
         self._journal = _FailureJournal(config.failure_classification)
         self._plan = deps.plan
 
@@ -119,11 +121,7 @@ class _PipelineRunner(Generic[StateT, ContextT]):
         self._failure_handler._orchestrator = self._orch
         self._step_execution = _StepExecutionCoordinator[StateT, ContextT](
             invoker=self._invoker,
-            emit=self._orch.emit,
-            complete_step=self._orch.complete_step,
-            handle_failure=self._orch._handle_execution_failure,
-            state_getter=lambda: self._ctx.state,
-            context_getter=lambda: self._ctx.context,
+            orch=self._orch,
             step_errors=self._step_errors,
         )
         self._orch._step_execution = self._step_execution
@@ -259,7 +257,7 @@ class _PipelineRunner(Generic[StateT, ContextT]):
         self._ctx.runtime_sm.start_startup()
         state = self._ctx.state
         context = self._ctx.context
-        await self._events.notify_start(state, context)
+        await self._events.notify_start(state, context, run_id=self._ctx.run_id)
 
         error_event = await self._lifecycle.execute_startup(state, context)
         if error_event:
@@ -408,6 +406,7 @@ class _PipelineRunner(Generic[StateT, ContextT]):
             reason=resolved.reason,
         )
         self._ctx.runtime_sm.finish_terminal()
+        user_meta = self._ctx.meta_impl._snapshot() if self._ctx.meta_impl else None
         finish_event = Event(
             EventType.FINISH,
             "system",
@@ -421,6 +420,7 @@ class _PipelineRunner(Generic[StateT, ContextT]):
                 failed_step=resolved.failed_step,
                 errors=list(resolved.errors),
                 metrics=self._metrics.snapshot(),
+                user_meta=user_meta or None,
             ),
             node_kind=NodeKind.SYSTEM,
         )
@@ -440,6 +440,10 @@ class _PipelineRunner(Generic[StateT, ContextT]):
     ) -> AsyncGenerator[Event, None]:
         self._ctx = _RunContext(state=state, context=context)
         self._pending_owner_invocations.clear()
+
+        # Detect and initialize Meta on user's context
+        self._ctx.meta_impl = detect_and_init_meta(context, self._pipe_metadata)
+
         # Update orchestrator's context reference for this run
         self._orch._ctx = self._ctx
 

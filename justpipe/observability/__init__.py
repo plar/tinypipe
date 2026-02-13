@@ -158,11 +158,9 @@ from justpipe.observability.barrier import (  # noqa: E402
     BarrierDebugRecord,
     BarrierDebugSink,
 )
-from justpipe.observability.storage import StorageObserver  # noqa: E402
 from justpipe.observability.metrics import MetricsCollector  # noqa: E402
 from justpipe.observability.timeline import TimelineVisualizer  # noqa: E402
 from justpipe.observability.state import StateDiffTracker  # noqa: E402
-from justpipe.observability.replay import ReplayObserver  # noqa: E402
 from justpipe.observability.compare import (  # noqa: E402
     compare_runs,
     RunComparison,
@@ -181,11 +179,9 @@ __all__ = [
     "BarrierDebugger",
     "BarrierDebugRecord",
     "BarrierDebugSink",
-    "StorageObserver",
     "MetricsCollector",
     "TimelineVisualizer",
     "StateDiffTracker",
-    "ReplayObserver",
     "compare_runs",
     "RunComparison",
     "format_comparison",

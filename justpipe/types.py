@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any
+from typing import Any, Protocol
 from collections.abc import Callable
 import asyncio
 import time
@@ -143,6 +143,62 @@ class Event:
 EVENT_SCHEMA_VERSION = "1.0"
 
 
+class ScopedMeta(Protocol):
+    """Writable metadata scope. Used for both step and run.
+
+    Implementation differs (step is contextvar-scoped, run is shared),
+    interface is identical.
+    """
+
+    def set(self, key: str, value: Any) -> None: ...
+
+    def get(self, key: str, default: Any = None) -> Any: ...
+
+    def add_tag(self, tag: str) -> None: ...
+
+    def record_metric(self, name: str, value: float) -> None:
+        """Record an observation for statistical aggregation (min/max/avg/count).
+
+        Use for latencies, sizes, scores — each call is one sample.
+        """
+        ...
+
+    def increment(self, name: str, amount: float = 1) -> None:
+        """Add to a monotonic counter total.
+
+        Use for request counts, items processed, bytes transferred.
+        """
+        ...
+
+
+class PipelineMeta(Protocol):
+    """Pipeline definition metadata. Read-only at runtime."""
+
+    def get(self, key: str, default: Any = None) -> Any: ...
+
+
+class Meta(Protocol):
+    """Structured metadata container with three explicit scopes.
+
+    Declare ``meta: Meta`` on your context type to opt in::
+
+        @dataclass
+        class MyContext:
+            meta: Meta
+
+        pipe = Pipe(context_type=MyContext)
+    """
+
+    @property
+    def step(self) -> ScopedMeta: ...
+
+    @property
+    def run(self) -> ScopedMeta: ...
+
+    @property
+    def pipeline(self) -> PipelineMeta: ...
+
+
 class PipelineTerminalStatus(Enum):
     """Top-level terminal outcomes for a pipeline run."""
 
@@ -176,16 +232,16 @@ class FailureSource(Enum):
 class FailureReason(str, Enum):
     """Canonical machine-readable reason codes for terminal outcomes."""
 
-    VALIDATION_ERROR = "validation_error"
     STARTUP_HOOK_ERROR = "startup_hook_error"
     STEP_ERROR = "step_error"
     SHUTDOWN_HOOK_ERROR = "shutdown_hook_error"
+    VALIDATION_ERROR = "validation_error"
+    CLASSIFIER_ERROR = "classifier_error"
     INTERNAL_ERROR = "internal_error"
     TIMEOUT = "timeout"
     CANCELLED = "cancelled"
     CLIENT_CLOSED = "client_closed"
     NO_STEPS = "no_steps"
-    CLASSIFIER_ERROR = "classifier_error"
 
 
 @dataclass(frozen=True)
@@ -299,6 +355,7 @@ class PipelineEndData:
     failed_step: str | None = None
     errors: list[FailureRecord] = field(default_factory=list)
     metrics: RuntimeMetrics | None = None
+    user_meta: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)

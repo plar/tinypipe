@@ -94,33 +94,42 @@ class TimelineVisualizer(Observer):
 
         self.pipeline_name = meta.pipe_name
 
+    def process_event(
+        self, event_type: EventType, stage: str, timestamp: float
+    ) -> None:
+        """Sync method to process a single event into the timeline.
+
+        Used by CLI replay and delegated to by ``on_event``.
+        """
+        if event_type == EventType.STEP_START:
+            self.step_start_times[stage] = timestamp
+            self.events.append(TimelineEvent(timestamp, event_type, stage))
+
+        elif event_type == EventType.STEP_END:
+            if stage in self.step_start_times:
+                start = self.step_start_times[stage]
+                duration = timestamp - start
+                self.step_end_times[stage] = timestamp
+                del self.step_start_times[stage]
+
+                self.events.append(
+                    TimelineEvent(timestamp, event_type, stage, duration)
+                )
+
+        elif event_type in {
+            EventType.STEP_ERROR,
+            EventType.BARRIER_WAIT,
+            EventType.BARRIER_RELEASE,
+        }:
+            self.events.append(TimelineEvent(timestamp, event_type, stage))
+
     async def on_event(
         self, state: Any, context: Any, meta: ObserverMeta, event: Event
     ) -> None:
         """Capture events for timeline."""
         _ = (state, context, meta)
-        if event.type == EventType.STEP_START:
-            self.step_start_times[event.stage] = event.timestamp
-            self.events.append(TimelineEvent(event.timestamp, event.type, event.stage))
-
-        elif event.type == EventType.STEP_END:
-            if event.stage in self.step_start_times:
-                start = self.step_start_times[event.stage]
-                duration = event.timestamp - start
-                self.step_end_times[event.stage] = event.timestamp
-                del self.step_start_times[event.stage]
-
-                self.events.append(
-                    TimelineEvent(event.timestamp, event.type, event.stage, duration)
-                )
-
-        elif event.type in {
-            EventType.STEP_ERROR,
-            EventType.BARRIER_WAIT,
-            EventType.BARRIER_RELEASE,
-        }:
-            self.events.append(TimelineEvent(event.timestamp, event.type, event.stage))
-        elif event.type == EventType.MAP_COMPLETE and isinstance(event.payload, dict):
+        self.process_event(event.type, event.stage, event.timestamp)
+        if event.type == EventType.MAP_COMPLETE and isinstance(event.payload, dict):
             target = event.payload.get("target")
             if isinstance(target, str):
                 remove_worker_entries(self.step_start_times, target)
@@ -158,6 +167,35 @@ class TimelineVisualizer(Observer):
 
         return (timestamp - self.pipeline_start) / total
 
+    def _build_step_info(self) -> list[StepInfo]:
+        """Group events into step start/end pairs. Shared by all renderers."""
+        step_events: dict[str, list[TimelineEvent]] = defaultdict(list)
+        for event in self.events:
+            if event.event_type in {EventType.STEP_START, EventType.STEP_END}:
+                step_events[event.stage].append(event)
+
+        step_info: list[StepInfo] = []
+        for step, events in step_events.items():
+            start_event = next(
+                (e for e in events if e.event_type == EventType.STEP_START), None
+            )
+            end_event = next(
+                (e for e in events if e.event_type == EventType.STEP_END), None
+            )
+            if start_event and end_event:
+                duration = end_event.duration or 0.0
+                step_info.append(
+                    StepInfo(
+                        name=step,
+                        start=start_event.timestamp,
+                        end=end_event.timestamp,
+                        duration=duration,
+                    )
+                )
+
+        step_info.sort(key=lambda x: x.start)
+        return step_info
+
     def _format_duration(self, seconds: float) -> str:
         """Format duration for display."""
         if seconds < 1:
@@ -186,43 +224,22 @@ class TimelineVisualizer(Observer):
         )
         lines.append("")
 
-        # Group events by step
-        step_events = defaultdict(list)
-        for event in self.events:
-            if event.event_type in {EventType.STEP_START, EventType.STEP_END}:
-                step_events[event.stage].append(event)
-
-        # Calculate step durations
-        step_info = []
-        for step, events in step_events.items():
-            start_event = next(
-                (e for e in events if e.event_type == EventType.STEP_START), None
+        # Build step info and normalize timestamps for ASCII rendering
+        raw_steps = self._build_step_info()
+        step_info = [
+            StepInfo(
+                name=s.name,
+                start=self._normalize_time(s.start),
+                end=self._normalize_time(s.end),
+                duration=s.duration,
             )
-            end_event = next(
-                (e for e in events if e.event_type == EventType.STEP_END), None
-            )
-
-            if start_event and end_event:
-                start_pos = self._normalize_time(start_event.timestamp)
-                end_pos = self._normalize_time(end_event.timestamp)
-                duration = end_event.duration or 0.0
-
-                step_info.append(
-                    StepInfo(
-                        name=step,
-                        start=start_pos,
-                        end=end_pos,
-                        duration=duration,
-                    )
-                )
-
-        # Sort by start time
-        step_info.sort(key=lambda x: x.start)
+            for s in raw_steps
+        ]
 
         # Limit steps
         if len(step_info) > max_steps:
             step_info = step_info[:max_steps]
-            truncated = len(step_events) - max_steps
+            truncated = len(raw_steps) - max_steps
         else:
             truncated = 0
 
@@ -280,40 +297,19 @@ class TimelineVisualizer(Observer):
 
         total_duration = self._get_duration()
 
-        # Group and process steps
-        step_events = defaultdict(list)
-        for event in self.events:
-            if event.event_type in {EventType.STEP_START, EventType.STEP_END}:
-                step_events[event.stage].append(event)
-
-        step_info = []
-        for step, events in step_events.items():
-            start_event = next(
-                (e for e in events if e.event_type == EventType.STEP_START), None
+        # Build step info and convert to percentages for HTML rendering
+        raw_steps = self._build_step_info()
+        step_info = [
+            StepInfo(
+                name=s.name,
+                start=self._normalize_time(s.start) * 100,
+                end=0.0,  # Not used in HTML rendering
+                width=(self._normalize_time(s.end) - self._normalize_time(s.start))
+                * 100,
+                duration=s.duration,
             )
-            end_event = next(
-                (e for e in events if e.event_type == EventType.STEP_END), None
-            )
-
-            if start_event and end_event:
-                start_norm = self._normalize_time(start_event.timestamp)
-                end_norm = self._normalize_time(end_event.timestamp)
-                start_pos = start_norm * 100
-                width = (end_norm - start_norm) * 100
-                duration = end_event.duration or 0.0
-
-                step_info.append(
-                    StepInfo(
-                        name=step,
-                        start=start_pos,
-                        end=0.0,  # Not used in HTML rendering
-                        width=width,
-                        duration=duration,
-                    )
-                )
-
-        # Sort by start time
-        step_info.sort(key=lambda x: x.start)
+            for s in raw_steps
+        ]
 
         # Find bottleneck
         bottleneck = None
@@ -386,33 +382,18 @@ class TimelineVisualizer(Observer):
         lines.append("    axisFormat %S")
         lines.append("")
 
-        # Group events by step
-        step_events = defaultdict(list)
-        for event in self.events:
-            if event.event_type in {EventType.STEP_START, EventType.STEP_END}:
-                step_events[event.stage].append(event)
-
-        # Process steps
+        # Build step info and convert to millisecond offsets for Mermaid
+        raw_steps = self._build_step_info()
         step_info = []
-        for step, events in step_events.items():
-            start_event = next(
-                (e for e in events if e.event_type == EventType.STEP_START), None
-            )
-            end_event = next(
-                (e for e in events if e.event_type == EventType.STEP_END), None
-            )
-
-            if start_event and end_event and self.pipeline_start:
-                start_ms = int((start_event.timestamp - self.pipeline_start) * 1000)
-                end_ms = int((end_event.timestamp - self.pipeline_start) * 1000)
-                duration = (end_ms - start_ms) / 1000.0
-
+        for s in raw_steps:
+            if self.pipeline_start:
+                start_ms = int((s.start - self.pipeline_start) * 1000)
+                end_ms = int((s.end - self.pipeline_start) * 1000)
                 step_info.append(
-                    StepInfo(name=step, start=start_ms, end=end_ms, duration=duration)
+                    StepInfo(
+                        name=s.name, start=start_ms, end=end_ms, duration=s.duration
+                    )
                 )
-
-        # Sort by start time
-        step_info.sort(key=lambda x: x.start)
 
         # Render in Gantt format
         lines.append("    section Execution")

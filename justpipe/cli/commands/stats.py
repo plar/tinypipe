@@ -1,68 +1,49 @@
 """Stats command for CLI."""
 
-from datetime import datetime, timedelta, date
+from __future__ import annotations
+
 from collections import Counter, defaultdict
-from justpipe.storage.interface import StorageBackend
+from datetime import date, datetime, timedelta
+
+from justpipe.cli.formatting import format_duration
+from justpipe.cli.registry import PipelineRegistry
+from justpipe.types import PipelineTerminalStatus
 
 
-def format_duration(seconds: float | None) -> str:
-    """Format duration for display."""
-    if seconds is None:
-        return "-"
-    if seconds < 1:
-        return f"{seconds * 1000:.0f}ms"
-    elif seconds < 60:
-        return f"{seconds:.1f}s"
-    elif seconds < 3600:
-        return f"{seconds / 60:.1f}m"
-    else:
-        return f"{seconds / 3600:.1f}h"
-
-
-async def stats_command(
-    storage: StorageBackend,
+def stats_command(
+    registry: PipelineRegistry,
     pipeline: str | None = None,
     days: int = 7,
 ) -> None:
-    """Show pipeline statistics.
-
-    Args:
-        storage: Storage backend
-        pipeline: Filter by pipeline name
-        days: Number of days to include (default: 7)
-    """
-    # Calculate cutoff time
+    """Show pipeline statistics."""
     cutoff = datetime.now() - timedelta(days=days)
-    cutoff_timestamp = cutoff.timestamp()
 
-    # Get all runs
-    all_runs = await storage.list_runs(pipeline_name=pipeline, limit=10000)
+    all_runs = registry.list_all_runs(pipeline_name=pipeline, limit=10000)
 
     if not all_runs:
         print("No runs found")
         return
 
-    # Filter by date
-    recent_runs = [r for r in all_runs if r.start_time >= cutoff_timestamp]
+    # Filter by date (start_time is already datetime)
+    recent_runs = [a for a in all_runs if a.run.start_time >= cutoff]
 
     if not recent_runs:
         print(f"No runs found in the last {days} day(s)")
         return
 
-    # Calculate statistics
     total_runs = len(recent_runs)
-    status_counts = Counter(r.status for r in recent_runs)
-    pipeline_counts = Counter(r.pipeline_name for r in recent_runs)
+    status_counts: Counter[str] = Counter(a.run.status.value for a in recent_runs)
+    pipeline_counts: Counter[str] = Counter(a.pipeline_name for a in recent_runs)
 
     # Duration statistics
-    completed_runs = [r for r in recent_runs if r.duration is not None]
     durations: list[float] = [
-        r.duration for r in completed_runs if r.duration is not None
+        a.run.duration.total_seconds()
+        for a in recent_runs
+        if a.run.duration is not None
     ]
 
-    # Success rate
-    success_count = status_counts.get("success", 0)
-    error_count = status_counts.get("error", 0)
+    success_count = status_counts.get(PipelineTerminalStatus.SUCCESS.value, 0)
+    failed_count = status_counts.get(PipelineTerminalStatus.FAILED.value, 0)
     success_rate = (success_count / total_runs * 100) if total_runs > 0 else 0
 
     # Print header
@@ -76,36 +57,34 @@ async def stats_command(
     print("=" * 60)
     print()
 
-    # Total runs
     print(f"Total Runs:        {total_runs:,}")
     print()
 
     # Status breakdown
     print("Status Breakdown:")
-    for status in ["success", "error", "running", "suspended"]:
-        count = status_counts.get(status, 0)
+    status_indicators = {
+        PipelineTerminalStatus.SUCCESS.value: "✓",
+        PipelineTerminalStatus.FAILED.value: "✗",
+        PipelineTerminalStatus.TIMEOUT.value: "⏱",
+        PipelineTerminalStatus.CANCELLED.value: "◌",
+        PipelineTerminalStatus.CLIENT_CLOSED.value: "◦",
+    }
+    for status_val in [s.value for s in PipelineTerminalStatus]:
+        count = status_counts.get(status_val, 0)
+        if count == 0:
+            continue
         percentage = (count / total_runs * 100) if total_runs > 0 else 0
-
-        # Color indicator
-        if status == "success":
-            indicator = "✓"
-        elif status == "error":
-            indicator = "✗"
-        elif status == "running":
-            indicator = "⋯"
-        else:
-            indicator = "◦"
-
+        indicator = status_indicators.get(status_val, "◦")
         print(
-            f"  {indicator} {status.capitalize():<12} {count:>6,} ({percentage:>5.1f}%)"
+            f"  {indicator} {status_val.capitalize():<14} {count:>6,} ({percentage:>5.1f}%)"
         )
 
     print()
 
     # Success rate
-    if success_count + error_count > 0:
+    if success_count + failed_count > 0:
         print(
-            f"Success Rate:      {success_rate:.1f}% ({success_count}/{success_count + error_count})"
+            f"Success Rate:      {success_rate:.1f}% ({success_count}/{success_count + failed_count})"
         )
         print()
 
@@ -136,11 +115,10 @@ async def stats_command(
 
     # Daily activity
     daily_counts: dict[date, int] = defaultdict(int)
-    for run in recent_runs:
-        day = datetime.fromtimestamp(run.start_time).date()
+    for a in recent_runs:
+        day = a.run.start_time.date()
         daily_counts[day] += 1
 
-    # Show last 7 days
     print("Daily Activity (last 7 days):")
     today = datetime.now().date()
     for i in range(min(days, 7)):
@@ -154,17 +132,18 @@ async def stats_command(
 
     print()
 
-    # Error rate trend (if enough data)
-    error_runs = [r for r in recent_runs if r.status == "error"]
+    # Error runs
+    error_runs = [
+        a for a in recent_runs if a.run.status == PipelineTerminalStatus.FAILED
+    ]
     if error_runs:
         print(f"Recent Errors:     {len(error_runs)} error(s)")
 
-        # Show most recent errors
-        error_runs.sort(key=lambda r: r.start_time, reverse=True)
+        error_runs.sort(key=lambda a: a.run.start_time, reverse=True)
         print()
         print("Most Recent Errors:")
-        for run in error_runs[:3]:
-            time_ago = datetime.now() - datetime.fromtimestamp(run.start_time)
+        for a in error_runs[:3]:
+            time_ago = datetime.now() - a.run.start_time
             if time_ago.days > 0:
                 time_str = f"{time_ago.days}d ago"
             elif time_ago.seconds > 3600:
@@ -172,12 +151,12 @@ async def stats_command(
             else:
                 time_str = f"{time_ago.seconds // 60}m ago"
 
-            error_msg = run.error_message or "Unknown error"
+            error_msg = a.run.error_message or "Unknown error"
             if len(error_msg) > 50:
                 error_msg = error_msg[:47] + "..."
 
             print(
-                f"  {run.id[:12]}  {run.pipeline_name:<20}  {time_str:<8}  {error_msg}"
+                f"  {a.run.run_id[:12]}  {a.pipeline_name:<20}  {time_str:<8}  {error_msg}"
             )
 
         print()
@@ -186,9 +165,9 @@ async def stats_command(
     print("=" * 60)
     print()
 
-    if error_count > success_count:
-        print("⚠️  High error rate detected!")
-        print(f"   {error_count} errors vs {success_count} successes")
+    if failed_count > success_count:
+        print("Warning: High error rate detected!")
+        print(f"   {failed_count} errors vs {success_count} successes")
         print()
 
     if (
@@ -197,7 +176,7 @@ async def stats_command(
         and avg_duration is not None
         and max_duration > avg_duration * 3
     ):
-        print("⚠️  Performance outlier detected!")
+        print("Warning: Performance outlier detected!")
         print(
             f"   Slowest run: {format_duration(max_duration)} vs avg: {format_duration(avg_duration)}"
         )
