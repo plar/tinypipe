@@ -8,9 +8,9 @@ from typing import Any
 from click.testing import CliRunner
 
 from justpipe.cli.main import cli
-from justpipe.storage.interface import RunRecord
 from justpipe.storage.sqlite import SQLiteBackend
 from justpipe.types import EventType, PipelineTerminalStatus
+from tests.factories import make_events, make_run
 
 
 def _setup_storage(
@@ -23,71 +23,6 @@ def _setup_storage(
     pipe_dir.mkdir(parents=True)
     (pipe_dir / "pipeline.json").write_text(json.dumps({"name": pipeline_name}))
     return SQLiteBackend(pipe_dir / "runs.db")
-
-
-def _make_run(
-    run_id: str = "test-run-id-abcdef1234567890",
-    status: PipelineTerminalStatus = PipelineTerminalStatus.SUCCESS,
-    start: datetime | None = None,
-    duration_s: float = 1.5,
-    error_message: str | None = None,
-    user_meta: str | None = None,
-) -> RunRecord:
-    start = start or datetime(2024, 1, 15, 12, 0, 0)
-    return RunRecord(
-        run_id=run_id,
-        start_time=start,
-        end_time=start + timedelta(seconds=duration_s),
-        duration=timedelta(seconds=duration_s),
-        status=status,
-        error_message=error_message,
-        user_meta=user_meta,
-    )
-
-
-def _make_events() -> list[str]:
-    """Create a minimal set of serialized events."""
-    base_ts = datetime(2024, 1, 15, 12, 0, 0).timestamp()
-    return [
-        json.dumps(
-            {
-                "type": EventType.STEP_START.value,
-                "stage": "step_a",
-                "timestamp": base_ts + 0.1,
-                "run_id": "test-run",
-                "origin_run_id": "test-run",
-                "parent_run_id": None,
-                "seq": 1,
-                "node_kind": "step",
-                "invocation_id": "inv-1",
-                "parent_invocation_id": None,
-                "owner_invocation_id": None,
-                "attempt": 1,
-                "scope": [],
-                "meta": {},
-                "payload": None,
-            }
-        ),
-        json.dumps(
-            {
-                "type": EventType.STEP_END.value,
-                "stage": "step_a",
-                "timestamp": base_ts + 0.5,
-                "run_id": "test-run",
-                "origin_run_id": "test-run",
-                "parent_run_id": None,
-                "seq": 2,
-                "node_kind": "step",
-                "invocation_id": "inv-1",
-                "parent_invocation_id": None,
-                "owner_invocation_id": None,
-                "attempt": 1,
-                "scope": [],
-                "meta": {},
-                "payload": None,
-            }
-        ),
-    ]
 
 
 def _invoke(tmp_path: Path, args: list[str], monkeypatch: Any | None = None) -> Any:
@@ -105,7 +40,7 @@ class TestListCommand:
 
     def test_shows_runs(self, tmp_path: Path) -> None:
         backend = _setup_storage(tmp_path)
-        backend.save_run(_make_run(), [])
+        backend.save_run(make_run(), [])
 
         result = _invoke(tmp_path, ["list"])
         assert result.exit_code == 0
@@ -114,8 +49,8 @@ class TestListCommand:
 
     def test_status_filter(self, tmp_path: Path) -> None:
         backend = _setup_storage(tmp_path)
-        backend.save_run(_make_run("run-ok", PipelineTerminalStatus.SUCCESS), [])
-        backend.save_run(_make_run("run-fail", PipelineTerminalStatus.FAILED), [])
+        backend.save_run(make_run("run-ok", PipelineTerminalStatus.SUCCESS), [])
+        backend.save_run(make_run("run-fail", PipelineTerminalStatus.FAILED), [])
 
         result = _invoke(tmp_path, ["list", "--status", "failed"])
         assert result.exit_code == 0
@@ -126,8 +61,8 @@ class TestShowCommand:
     def test_show_run(self, tmp_path: Path) -> None:
         backend = _setup_storage(tmp_path)
         backend.save_run(
-            _make_run(user_meta='{"version": "1.0"}'),
-            _make_events(),
+            make_run("test-run-id-abcdef1234567890", run_meta='{"version": "1.0"}'),
+            make_events(),
         )
 
         result = _invoke(tmp_path, ["show", "test-run-id"])
@@ -147,7 +82,7 @@ class TestShowCommand:
 class TestTimelineCommand:
     def test_timeline_ascii(self, tmp_path: Path) -> None:
         backend = _setup_storage(tmp_path)
-        backend.save_run(_make_run(), _make_events())
+        backend.save_run(make_run("test-run-id-abcdef1234567890"), make_events())
 
         result = _invoke(tmp_path, ["timeline", "test-run-id"])
         assert result.exit_code == 0
@@ -163,8 +98,8 @@ class TestTimelineCommand:
 class TestCompareCommand:
     def test_compare_two_runs(self, tmp_path: Path) -> None:
         backend = _setup_storage(tmp_path)
-        backend.save_run(_make_run("run-aaa-1234567890123456"), _make_events())
-        backend.save_run(_make_run("run-bbb-1234567890123456"), _make_events())
+        backend.save_run(make_run("run-aaa-1234567890123456"), make_events())
+        backend.save_run(make_run("run-bbb-1234567890123456"), make_events())
 
         result = _invoke(tmp_path, ["compare", "run-aaa", "run-bbb"])
         assert result.exit_code == 0
@@ -174,7 +109,7 @@ class TestCompareCommand:
 class TestExportCommand:
     def test_export_json(self, tmp_path: Path) -> None:
         backend = _setup_storage(tmp_path)
-        backend.save_run(_make_run(), _make_events())
+        backend.save_run(make_run("test-run-id-abcdef1234567890"), make_events())
 
         result = _invoke(
             tmp_path, ["export", "test-run-id", "--output", str(tmp_path / "out.json")]
@@ -185,7 +120,7 @@ class TestExportCommand:
         data = json.loads((tmp_path / "out.json").read_text())
         assert data["run"]["pipeline_name"] == "test_pipeline"
         assert data["run"]["status"] == "success"
-        assert data["event_count"] == 2
+        assert data["event_count"] == 4
 
     def test_export_events_survives_malformed_json(self) -> None:
         """Test that _export_events handles malformed JSON gracefully."""
@@ -218,13 +153,13 @@ class TestStatsCommand:
     def test_stats(self, tmp_path: Path) -> None:
         backend = _setup_storage(tmp_path)
         now = datetime.now()
-        backend.save_run(_make_run(start=now - timedelta(hours=1)), [])
+        backend.save_run(make_run(start_time=now - timedelta(hours=1)), [])
         backend.save_run(
-            _make_run(
+            make_run(
                 "run-fail",
                 PipelineTerminalStatus.FAILED,
+                start_time=now - timedelta(hours=2),
                 error_message="boom",
-                start=now - timedelta(hours=2),
             ),
             [],
         )
@@ -239,9 +174,9 @@ class TestCleanupCommand:
         backend = _setup_storage(tmp_path)
         for i in range(15):
             backend.save_run(
-                _make_run(
+                make_run(
                     f"run-{i:03d}-padded-to-be-long",
-                    start=datetime(2020, 1, 1) + timedelta(hours=i),
+                    start_time=datetime(2020, 1, 1) + timedelta(hours=i),
                 ),
                 [],
             )
@@ -259,7 +194,7 @@ class TestPipelinesCommand:
 
     def test_lists_pipelines(self, tmp_path: Path) -> None:
         backend = _setup_storage(tmp_path, "my_pipeline", "hash1")
-        backend.save_run(_make_run(), [])
+        backend.save_run(make_run(), [])
         _setup_storage(tmp_path, "other_pipeline", "hash2")
 
         result = _invoke(tmp_path, ["pipelines"])
