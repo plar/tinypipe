@@ -227,7 +227,7 @@ class TestAutoPersistenceObserver:
         assert run.error_step == "step_a"
 
     @pytest.mark.asyncio
-    async def test_extracts_user_meta_from_finish(self) -> None:
+    async def test_extracts_run_meta_from_finish(self) -> None:
         obs, backend = self._make_observer()
         meta = _make_meta()
 
@@ -240,7 +240,7 @@ class TestAutoPersistenceObserver:
             payload={
                 "status": "success",
                 "duration_s": 1.0,
-                "user_meta": {"run": {"tags": ["prod"]}},
+                "run_meta": {"run": {"tags": ["prod"]}},
             },
         )
         await obs.on_event(None, None, meta, finish_event)
@@ -248,8 +248,8 @@ class TestAutoPersistenceObserver:
 
         run = backend.get_run("test-run-123")
         assert run is not None
-        assert run.user_meta is not None
-        parsed = json.loads(run.user_meta)
+        assert run.run_meta is not None
+        parsed = json.loads(run.run_meta)
         assert parsed["run"]["tags"] == ["prod"]
 
     @pytest.mark.asyncio

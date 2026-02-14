@@ -20,7 +20,7 @@ class RunRecord:
     status: PipelineTerminalStatus
     error_message: str | None = None
     error_step: str | None = None
-    user_meta: str | None = None  # JSON string or None
+    run_meta: str | None = None  # JSON string or None
 
 
 @dataclass(frozen=True)

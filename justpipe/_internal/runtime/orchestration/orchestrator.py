@@ -102,6 +102,7 @@ class _Orchestrator(Generic[StateT, ContextT], TaskOrchestrator[StateT, ContextT
         track_owner: bool = True,
         invocation: InvocationContext | None = None,
         already_terminal: bool = False,
+        step_meta: dict[str, Any] | None = None,
     ) -> None:
         await self.submit(
             StepCompleted(
@@ -112,6 +113,7 @@ class _Orchestrator(Generic[StateT, ContextT], TaskOrchestrator[StateT, ContextT
                 track_owner=track_owner,
                 invocation=invocation,
                 already_terminal=already_terminal,
+                step_meta=step_meta,
             )
         )
 
@@ -123,9 +125,10 @@ class _Orchestrator(Generic[StateT, ContextT], TaskOrchestrator[StateT, ContextT
         error: Exception,
         track_owner: bool = True,
         invocation: InvocationContext | None = None,
+        step_meta: dict[str, Any] | None = None,
     ) -> None:
         await self._step_execution.fail_step(
-            name, owner, error, track_owner, invocation=invocation
+            name, owner, error, track_owner, invocation=invocation, step_meta=step_meta
         )
 
     # --- StopPort ---
@@ -204,7 +207,15 @@ class _Orchestrator(Generic[StateT, ContextT], TaskOrchestrator[StateT, ContextT
         state: StateT | None,
         context: ContextT | None,
         invocation: InvocationContext | None = None,
+        step_meta: dict[str, Any] | None = None,
     ) -> None:
         await self._failure_handler.handle_failure(
-            name, owner, error, payload, state, context, invocation=invocation
+            name,
+            owner,
+            error,
+            payload,
+            state,
+            context,
+            invocation=invocation,
+            step_meta=step_meta,
         )

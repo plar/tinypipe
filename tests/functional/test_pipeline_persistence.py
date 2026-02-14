@@ -135,11 +135,11 @@ async def test_persist_with_meta(storage_dir: Path) -> None:
     backend = SQLiteBackend(db_path)
     runs = backend.list_runs()
     assert len(runs) == 1
-    assert runs[0].user_meta is not None
+    assert runs[0].run_meta is not None
 
-    meta = json.loads(runs[0].user_meta)
-    assert meta["run"]["data"]["label"] == "test-run"
-    assert "integration" in meta["run"]["tags"]
+    meta = json.loads(runs[0].run_meta)
+    assert meta["data"]["label"] == "test-run"
+    assert "integration" in meta["tags"]
 
 
 @pytest.mark.asyncio
@@ -160,8 +160,8 @@ async def test_persist_without_meta(storage_dir: Path) -> None:
     backend = SQLiteBackend(db_path)
     runs = backend.list_runs()
     assert len(runs) == 1
-    # No user_meta when context doesn't have Meta field
-    assert runs[0].user_meta is None
+    # No run_meta when context doesn't have Meta field
+    assert runs[0].run_meta is None
 
 
 @pytest.mark.asyncio

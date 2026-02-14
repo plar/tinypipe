@@ -14,7 +14,7 @@ from justpipe._internal.runtime.meta import (
     _PipelineMetaImpl,
     _ScopedMeta,
     _StepMetaImpl,
-    _current_step_var,
+    _current_step_meta_var,
     detect_and_init_meta,
 )
 
@@ -88,71 +88,62 @@ class TestStepMetaImpl:
         with pytest.raises(RuntimeError, match="only available inside a step"):
             m.set("key", "value")
 
-    def test_scoped_by_step_name(self) -> None:
+    def test_delegates_to_contextvar(self) -> None:
+        """_StepMetaImpl is a stateless proxy delegating to _current_step_meta_var."""
         m = _StepMetaImpl()
-        token_a = _current_step_var.set("step_a")
+        scoped = _ScopedMeta()
+        token = _current_step_meta_var.set(scoped)
+        try:
+            m.set("x", 1)
+            m.add_tag("t")
+            m.record_metric("lat", 1.5)
+            m.increment("cnt")
+            assert m.get("x") == 1
+        finally:
+            _current_step_meta_var.reset(token)
+
+        snap = scoped._snapshot()
+        assert snap["data"]["x"] == 1
+        assert "t" in snap["tags"]
+        assert snap["metrics"]["lat"] == [1.5]
+        assert snap["counters"]["cnt"] == 1
+
+    def test_different_contextvars_isolated(self) -> None:
+        """Two different _ScopedMeta instances set via contextvar are independent."""
+        m = _StepMetaImpl()
+
+        scoped_a = _ScopedMeta()
+        token_a = _current_step_meta_var.set(scoped_a)
         try:
             m.set("x", 1)
         finally:
-            _current_step_var.reset(token_a)
+            _current_step_meta_var.reset(token_a)
 
-        token_b = _current_step_var.set("step_b")
+        scoped_b = _ScopedMeta()
+        token_b = _current_step_meta_var.set(scoped_b)
         try:
             m.set("x", 2)
         finally:
-            _current_step_var.reset(token_b)
+            _current_step_meta_var.reset(token_b)
 
-        assert m._steps["step_a"].get("x") == 1
-        assert m._steps["step_b"].get("x") == 2
-
-    def test_lazy_creation(self) -> None:
-        m = _StepMetaImpl()
-        assert len(m._steps) == 0
-        token = _current_step_var.set("new_step")
-        try:
-            m.get("anything")
-        finally:
-            _current_step_var.reset(token)
-        assert "new_step" in m._steps
-
-    def test_snapshot(self) -> None:
-        m = _StepMetaImpl()
-        token = _current_step_var.set("step_a")
-        try:
-            m.set("key", "val")
-            m.add_tag("t")
-        finally:
-            _current_step_var.reset(token)
-
-        snap = m._snapshot()
-        assert "step_a" in snap
-        assert snap["step_a"]["data"] == {"key": "val"}
-
-    def test_snapshot_excludes_empty_steps(self) -> None:
-        m = _StepMetaImpl()
-        token = _current_step_var.set("empty_step")
-        try:
-            m.get("missing")  # access creates lazy step but writes nothing
-        finally:
-            _current_step_var.reset(token)
-
-        snap = m._snapshot()
-        assert "empty_step" not in snap
+        assert scoped_a.get("x") == 1
+        assert scoped_b.get("x") == 2
 
     @pytest.mark.asyncio
     async def test_parallel_isolation(self) -> None:
-        """Map workers running concurrently should have isolated step meta."""
+        """Concurrent tasks with separate contextvars have isolated step meta."""
         m = _StepMetaImpl()
         results: dict[str, Any] = {}
 
-        async def worker(step_name: str, value: int) -> None:
-            token = _current_step_var.set(step_name)
+        async def worker(name: str, value: int) -> None:
+            scoped = _ScopedMeta()
+            token = _current_step_meta_var.set(scoped)
             try:
                 m.set("val", value)
                 await asyncio.sleep(0.01)  # yield control
-                results[step_name] = m.get("val")
+                results[name] = m.get("val")
             finally:
-                _current_step_var.reset(token)
+                _current_step_meta_var.reset(token)
 
         async with asyncio.TaskGroup() as tg:
             tg.create_task(worker("w1", 100))
@@ -197,18 +188,13 @@ class TestMetaImpl:
         assert isinstance(m.run, _ScopedMeta)
         assert isinstance(m.pipeline, _PipelineMetaImpl)
 
-    def test_snapshot(self) -> None:
+    def test_snapshot_only_run_scope(self) -> None:
+        """_MetaImpl._snapshot() returns only run-scope data (no steps key)."""
         m = _MetaImpl()
         m.run.set("key", "val")
-        token = _current_step_var.set("s1")
-        try:
-            m.step.set("x", 1)
-        finally:
-            _current_step_var.reset(token)
-
         snap = m._snapshot()
-        assert snap["run"]["data"] == {"key": "val"}
-        assert snap["steps"]["s1"]["data"] == {"x": 1}
+        assert snap == {"data": {"key": "val"}}
+        assert "steps" not in snap
 
     def test_snapshot_empty(self) -> None:
         m = _MetaImpl()

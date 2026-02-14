@@ -36,6 +36,7 @@ class _FailureHandler:
         context: Any | None = None,
         track_owner: bool = True,
         invocation: InvocationContext | None = None,
+        step_meta: dict[str, Any] | None = None,
     ) -> None:
         """Centralized error handling logic with escalation."""
         step = self._steps.get(name)
@@ -54,6 +55,7 @@ class _FailureHandler:
                     payload=payload,
                     track_owner=track_owner,
                     invocation=invocation,
+                    step_meta=step_meta,
                 )
                 return
             except Exception as new_error:
@@ -74,6 +76,7 @@ class _FailureHandler:
                     payload=payload,
                     track_owner=track_owner,
                     invocation=invocation,
+                    step_meta=step_meta,
                 )
                 return
             except Exception as final_error:
@@ -104,6 +107,7 @@ class _FailureHandler:
             error,
             track_owner=track_owner,
             invocation=invocation,
+            step_meta=step_meta,
         )
 
     async def _report_error(
@@ -113,6 +117,7 @@ class _FailureHandler:
         error: Exception,
         track_owner: bool,
         invocation: InvocationContext | None = None,
+        step_meta: dict[str, Any] | None = None,
     ) -> None:
         await self._orchestrator.fail_step(
             name=name,
@@ -120,6 +125,7 @@ class _FailureHandler:
             error=error,
             track_owner=track_owner,
             invocation=invocation,
+            step_meta=step_meta,
         )
 
     def _log_error(self, name: str, error: Exception, state: Any | None) -> None:

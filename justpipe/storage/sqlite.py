@@ -23,7 +23,7 @@ CREATE TABLE IF NOT EXISTS runs (
     status TEXT,
     error_message TEXT,
     error_step TEXT,
-    user_meta TEXT,
+    run_meta TEXT,
     created_at REAL DEFAULT (unixepoch())
 );
 
@@ -77,7 +77,7 @@ class SQLiteBackend:
             conn.execute(
                 """INSERT INTO runs
                    (run_id, start_time, end_time, duration_s, status,
-                    error_message, error_step, user_meta)
+                    error_message, error_step, run_meta)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     run.run_id,
@@ -87,7 +87,7 @@ class SQLiteBackend:
                     run.status.value,
                     run.error_message,
                     run.error_step,
-                    run.user_meta,
+                    run.run_meta,
                 ),
             )
             for seq, data in enumerate(events, start=1):
@@ -212,7 +212,7 @@ class SQLiteBackend:
             else PipelineTerminalStatus.SUCCESS,
             error_message=row["error_message"],
             error_step=row["error_step"],
-            user_meta=row["user_meta"],
+            run_meta=row["run_meta"],
         )
 
     @staticmethod

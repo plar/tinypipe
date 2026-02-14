@@ -133,7 +133,7 @@ class _AutoPersistenceObserver(Observer):
             status = PipelineTerminalStatus.SUCCESS
             error_message: str | None = None
             error_step: str | None = None
-            user_meta: str | None = None
+            run_meta: str | None = None
             end_time = time.time()
             actual_duration = duration_s or (end_time - self._start_time)
 
@@ -152,9 +152,9 @@ class _AutoPersistenceObserver(Observer):
                             pass
                     error_message = payload.get("error")
                     error_step = payload.get("failed_step")
-                    raw_meta = payload.get("user_meta")
+                    raw_meta = payload.get("run_meta")
                     if raw_meta:
-                        user_meta = json.dumps(raw_meta)
+                        run_meta = json.dumps(raw_meta)
                     dur = payload.get("duration_s")
                     if dur is not None:
                         actual_duration = dur
@@ -172,7 +172,7 @@ class _AutoPersistenceObserver(Observer):
                 status=status,
                 error_message=error_message,
                 error_step=error_step,
-                user_meta=user_meta,
+                run_meta=run_meta,
             )
 
             await asyncio.to_thread(self._backend.save_run, run, self._events)

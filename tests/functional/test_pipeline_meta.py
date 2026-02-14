@@ -8,6 +8,7 @@ from typing import Any
 import pytest
 
 from justpipe import EventType, Meta, Pipe, PipelineEndData
+from justpipe.types import Event
 
 
 @dataclass
@@ -22,7 +23,8 @@ class PlainContext:
 
 class TestMetaStepScope:
     @pytest.mark.asyncio
-    async def test_step_meta_in_finish_snapshot(self) -> None:
+    async def test_step_meta_on_step_end_event(self) -> None:
+        """Step meta is attached to STEP_END Event.meta (not FINISH)."""
         pipe: Pipe[None, MetaContext] = Pipe(context_type=MetaContext, name="test")
 
         @pipe.step()
@@ -33,25 +35,32 @@ class TestMetaStepScope:
             ctx.meta.step.increment("tokens", 150)  # type: ignore[union-attr]
 
         ctx = MetaContext()
+        step_end_events: list[Event] = []
         end_data: PipelineEndData | None = None
         async for event in pipe.run(None, ctx):
+            if event.type == EventType.STEP_END and event.stage == "my_step":
+                step_end_events.append(event)
             if event.type == EventType.FINISH:
                 end_data = event.payload
 
+        # Step meta should be on the STEP_END event
+        assert len(step_end_events) == 1
+        meta = step_end_events[0].meta
+        assert meta is not None
+        assert meta["data"]["model"] == "gpt-4"
+        assert "llm" in meta["tags"]
+        assert meta["metrics"]["latency"] == [1.5]
+        assert meta["counters"]["tokens"] == 150
+
+        # FINISH event should NOT contain step data
         assert end_data is not None
-        assert end_data.user_meta is not None
-        steps = end_data.user_meta["steps"]
-        assert "my_step" in steps
-        step_meta = steps["my_step"]
-        assert step_meta["data"]["model"] == "gpt-4"
-        assert "llm" in step_meta["tags"]
-        assert step_meta["metrics"]["latency"] == [1.5]
-        assert step_meta["counters"]["tokens"] == 150
+        assert end_data.run_meta is None  # No run-scope writes
 
 
 class TestMetaRunScope:
     @pytest.mark.asyncio
-    async def test_run_meta_in_finish_snapshot(self) -> None:
+    async def test_run_meta_in_finish_event(self) -> None:
+        """Run-scope meta appears in FINISH event as run_meta."""
         pipe: Pipe[None, MetaContext] = Pipe(context_type=MetaContext, name="test")
 
         @pipe.step(to="step_b")
@@ -70,10 +79,9 @@ class TestMetaRunScope:
                 end_data = event.payload
 
         assert end_data is not None
-        assert end_data.user_meta is not None
-        run_meta = end_data.user_meta["run"]
-        assert run_meta["data"]["started_by"] == "step_a"
-        assert run_meta["counters"]["total_items"] == 8
+        assert end_data.run_meta is not None
+        assert end_data.run_meta["data"]["started_by"] == "step_a"
+        assert end_data.run_meta["counters"]["total_items"] == 8
 
 
 class TestMetaPipelineScope:
@@ -103,7 +111,8 @@ class TestMetaPipelineScope:
 
 class TestMetaParallelIsolation:
     @pytest.mark.asyncio
-    async def test_step_meta_isolated_per_step(self) -> None:
+    async def test_each_step_end_carries_own_meta(self) -> None:
+        """Parallel steps each get their own step meta on their STEP_END events."""
         pipe: Pipe[None, MetaContext] = Pipe(
             context_type=MetaContext,
             name="test",
@@ -119,16 +128,17 @@ class TestMetaParallelIsolation:
             ctx.meta.step.set("source", "b")  # type: ignore[union-attr]
 
         ctx = MetaContext()
-        end_data: PipelineEndData | None = None
+        step_end_meta: dict[str, dict[str, Any] | None] = {}
         async for event in pipe.run(None, ctx):
-            if event.type == EventType.FINISH:
-                end_data = event.payload
+            if event.type == EventType.STEP_END and event.stage in ("step_a", "step_b"):
+                step_end_meta[event.stage] = event.meta
 
-        assert end_data is not None
-        assert end_data.user_meta is not None
-        steps = end_data.user_meta["steps"]
-        assert steps["step_a"]["data"]["source"] == "a"
-        assert steps["step_b"]["data"]["source"] == "b"
+        assert "step_a" in step_end_meta
+        assert "step_b" in step_end_meta
+        assert step_end_meta["step_a"] is not None
+        assert step_end_meta["step_b"] is not None
+        assert step_end_meta["step_a"]["data"]["source"] == "a"
+        assert step_end_meta["step_b"]["data"]["source"] == "b"
 
 
 class TestNoMetaUnchanged:
@@ -147,7 +157,7 @@ class TestNoMetaUnchanged:
                 end_data = event.payload
 
         assert end_data is not None
-        assert end_data.user_meta is None
+        assert end_data.run_meta is None
         assert ctx.val == 42
 
     @pytest.mark.asyncio
@@ -164,13 +174,13 @@ class TestNoMetaUnchanged:
                 end_data = event.payload
 
         assert end_data is not None
-        assert end_data.user_meta is None
+        assert end_data.run_meta is None
 
 
 class TestMetaEmptySnapshot:
     @pytest.mark.asyncio
     async def test_meta_unused_returns_none(self) -> None:
-        """If Meta is declared but never written to, user_meta should be None."""
+        """If Meta is declared but never written to, run_meta should be None."""
         pipe: Pipe[None, MetaContext] = Pipe(context_type=MetaContext, name="test")
 
         @pipe.step()
@@ -184,4 +194,61 @@ class TestMetaEmptySnapshot:
                 end_data = event.payload
 
         assert end_data is not None
-        assert end_data.user_meta is None
+        assert end_data.run_meta is None
+
+
+class TestStepMetaOnError:
+    @pytest.mark.asyncio
+    async def test_step_error_carries_partial_meta(self) -> None:
+        """STEP_ERROR events carry partial meta from before the failure."""
+        pipe: Pipe[None, MetaContext] = Pipe(context_type=MetaContext, name="test")
+
+        @pipe.step()
+        async def my_step(state: None, ctx: MetaContext) -> None:
+            ctx.meta.step.set("started", True)  # type: ignore[union-attr]
+            ctx.meta.step.increment("processed", 3)  # type: ignore[union-attr]
+            raise ValueError("intentional error")
+
+        ctx = MetaContext()
+        step_error_events: list[Event] = []
+        async for event in pipe.run(None, ctx):
+            if event.type == EventType.STEP_ERROR and event.stage == "my_step":
+                step_error_events.append(event)
+
+        assert len(step_error_events) == 1
+        meta = step_error_events[0].meta
+        assert meta is not None
+        assert meta["data"]["started"] is True
+        assert meta["counters"]["processed"] == 3
+
+
+class TestEventHookEnrichmentVisible:
+    @pytest.mark.asyncio
+    async def test_hook_enrichment_visible_to_observers(self) -> None:
+        """Event hooks run before observers, so hook-enriched meta is visible."""
+        pipe: Pipe[None, None] = Pipe(name="test")
+        observed_events: list[Event] = []
+
+        @pipe.step()
+        async def my_step(state: None) -> None:
+            pass
+
+        def add_trace_id(event: Event) -> Event:
+            if event.type == EventType.STEP_START:
+                from dataclasses import replace
+
+                new_meta = dict(event.meta) if event.meta else {}
+                new_meta["trace_id"] = "abc123"
+                return replace(event, meta=new_meta)
+            return event
+
+        pipe.add_event_hook(add_trace_id)
+
+        async for event in pipe.run(None):
+            observed_events.append(event)
+
+        # Find the STEP_START event that was enriched by the hook
+        step_starts = [e for e in observed_events if e.type == EventType.STEP_START]
+        assert len(step_starts) >= 1
+        assert step_starts[0].meta is not None
+        assert step_starts[0].meta["trace_id"] == "abc123"

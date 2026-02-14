@@ -10,7 +10,9 @@ from typing import Any, Union, get_type_hints
 
 from justpipe.types import DefinitionError, Meta
 
-_current_step_var: ContextVar[str | None] = ContextVar("_jp_current_step", default=None)
+_current_step_meta_var: ContextVar[_ScopedMeta | None] = ContextVar(
+    "_jp_current_step_meta", default=None
+)
 
 
 class _ScopedMeta:
@@ -53,26 +55,22 @@ class _ScopedMeta:
 
 
 class _StepMetaImpl:
-    """Step-scoped metadata. dict[str, _ScopedMeta] keyed by step name.
+    """Step-scoped metadata — stateless proxy that delegates to ``_current_step_meta_var``.
 
-    Reads ``_current_step_var`` to resolve which step is active.
-    Lazily creates a ``_ScopedMeta`` per step on first access.
+    The coordinator sets a fresh ``_ScopedMeta`` per invocation via the contextvar;
+    this proxy simply forwards calls to whichever ``_ScopedMeta`` is active.
     """
 
-    __slots__ = ("_steps",)
+    __slots__ = ()
 
-    def __init__(self) -> None:
-        self._steps: dict[str, _ScopedMeta] = {}
-
-    def _current(self) -> _ScopedMeta:
-        step_name = _current_step_var.get()
-        if step_name is None:
+    @staticmethod
+    def _current() -> _ScopedMeta:
+        meta = _current_step_meta_var.get()
+        if meta is None:
             raise RuntimeError(
                 "ctx.meta.step is only available inside a step execution"
             )
-        if step_name not in self._steps:
-            self._steps[step_name] = _ScopedMeta()
-        return self._steps[step_name]
+        return meta
 
     def set(self, key: str, value: Any) -> None:
         self._current().set(key, value)
@@ -88,14 +86,6 @@ class _StepMetaImpl:
 
     def increment(self, name: str, amount: float = 1) -> None:
         self._current().increment(name, amount)
-
-    def _snapshot(self) -> dict[str, dict[str, Any]]:
-        result: dict[str, dict[str, Any]] = {}
-        for step_name, scoped in self._steps.items():
-            snap = scoped._snapshot()
-            if snap:
-                result[step_name] = snap
-        return result
 
 
 class _PipelineMetaImpl:
@@ -133,14 +123,7 @@ class _MetaImpl:
         return self._pipeline
 
     def _snapshot(self) -> dict[str, Any]:
-        snap: dict[str, Any] = {}
-        steps = self._step._snapshot()
-        if steps:
-            snap["steps"] = steps
-        run = self._run._snapshot()
-        if run:
-            snap["run"] = run
-        return snap
+        return self._run._snapshot()
 
 
 def _is_meta_type(tp: Any) -> bool:

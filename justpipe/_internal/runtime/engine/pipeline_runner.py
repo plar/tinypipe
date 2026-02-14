@@ -218,6 +218,7 @@ class _PipelineRunner(Generic[StateT, ContextT]):
                 owner_invocation_id=item.invocation.owner_invocation_id,
                 attempt=item.invocation.attempt,
                 scope=item.invocation.scope,
+                meta=item.step_meta,
             )
             yield await self._publish(worker_end)
 
@@ -235,6 +236,9 @@ class _PipelineRunner(Generic[StateT, ContextT]):
                 owner_invocation == item.invocation and item.already_terminal
             )
             if emit_owner_terminal and owner_invocation is not None:
+                # For owner-level STEP_END, attach step_meta only when
+                # the owner is the same as the completing step (simple steps).
+                owner_meta = item.step_meta if item.name == item.owner else None
                 end_event = Event(
                     EventType.STEP_END,
                     item.owner,
@@ -245,6 +249,7 @@ class _PipelineRunner(Generic[StateT, ContextT]):
                     owner_invocation_id=owner_invocation.owner_invocation_id,
                     attempt=owner_invocation.attempt,
                     scope=owner_invocation.scope,
+                    meta=owner_meta,
                 )
                 yield await self._publish(end_event)
             self._barriers.handle_completion(item.owner)
@@ -406,7 +411,7 @@ class _PipelineRunner(Generic[StateT, ContextT]):
             reason=resolved.reason,
         )
         self._ctx.runtime_sm.finish_terminal()
-        user_meta = self._ctx.meta_impl._snapshot() if self._ctx.meta_impl else None
+        run_meta = self._ctx.meta_impl._snapshot() if self._ctx.meta_impl else None
         finish_event = Event(
             EventType.FINISH,
             "system",
@@ -420,7 +425,7 @@ class _PipelineRunner(Generic[StateT, ContextT]):
                 failed_step=resolved.failed_step,
                 errors=list(resolved.errors),
                 metrics=self._metrics.snapshot(),
-                user_meta=user_meta or None,
+                run_meta=run_meta or None,
             ),
             node_kind=NodeKind.SYSTEM,
         )
