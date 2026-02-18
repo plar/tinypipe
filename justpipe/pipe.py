@@ -366,14 +366,14 @@ class Pipe(Generic[StateT, ContextT]):
         if self._persist:
             from justpipe._internal.runtime.persistence import (
                 _AutoPersistenceObserver,
-                _resolve_storage_path,
             )
+            from justpipe._internal.shared.utils import resolve_storage_path
             from justpipe.storage.sqlite import SQLiteBackend
 
             pipeline_hash = compute_pipeline_hash(
                 self.name, self.registry.steps, self.registry.topology
             )
-            storage_dir = _resolve_storage_path() / pipeline_hash
+            storage_dir = resolve_storage_path() / pipeline_hash
             storage_dir.mkdir(parents=True, exist_ok=True)
             backend = SQLiteBackend(storage_dir / "runs.db")
             observers.append(

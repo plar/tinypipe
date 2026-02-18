@@ -4,8 +4,7 @@ from collections.abc import Callable
 from unittest.mock import AsyncMock
 
 from justpipe.pipe import Pipe
-from justpipe.types import Event, EventType
-from justpipe._internal.types import InjectionMetadata
+from justpipe.types import Event, EventType, InjectionMetadata
 
 StateT = TypeVar("StateT")
 ContextT = TypeVar("ContextT")

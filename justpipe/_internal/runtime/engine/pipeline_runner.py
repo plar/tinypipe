@@ -37,7 +37,6 @@ from justpipe._internal.runtime.execution.step_execution_coordinator import (
     _StepExecutionCoordinator,
 )
 from justpipe._internal.runtime.meta import detect_and_init_meta
-from justpipe._internal.types import _Map, _Run
 from justpipe._internal.shared.utils import _resolve_name
 from justpipe.types import (
     Event,
@@ -47,6 +46,8 @@ from justpipe.types import (
     FailureSource,
     NodeKind,
     PipelineEndData,
+    _Map,
+    _Run,
 )
 
 StateT = TypeVar("StateT")
@@ -103,28 +104,26 @@ class _PipelineRunner(Generic[StateT, ContextT]):
             prepare_event=self._prepare_event,
             on_event=self._metrics.on_event,
         )
-        # Build orchestrator first (needed by step_execution lambdas)
-        # We use a two-phase init: create orchestrator, then set step_execution.
-        self._failure_handler = _FailureHandler(
-            self._plan.steps,
-            self._invoker,
-            None,  # type: ignore[arg-type]
-        )
+        # Orchestrator, step_execution, and failure_handler form a cycle.
+        # Build orchestrator first, then wire the cyclic dependencies.
         self._orch: _Orchestrator[StateT, ContextT] = _Orchestrator(
             ctx=self._ctx,
             kernel=self._kernel,
             tracker=self._tracker,
-            step_execution=None,  # type: ignore[arg-type]
-            failure_handler=self._failure_handler,
             metrics=self._metrics,
         )
-        self._failure_handler._orchestrator = self._orch
         self._step_execution = _StepExecutionCoordinator[StateT, ContextT](
             invoker=self._invoker,
             orch=self._orch,
             step_errors=self._step_errors,
         )
+        self._failure_handler = _FailureHandler(
+            self._plan.steps,
+            self._invoker,
+            self._orch,
+        )
         self._orch._step_execution = self._step_execution
+        self._orch._failure_handler = self._failure_handler
 
         self._barriers = _BarrierManager(
             self._orch,
@@ -179,12 +178,28 @@ class _PipelineRunner(Generic[StateT, ContextT]):
         self._metrics.record_task_completion(self._tracker.total_active_tasks)
 
         async for event in self._results.process_step_result(
-            item,
-            self._ctx.state,
-            self._ctx.context,
+            item, self._ctx.state, self._ctx.context,
         ):
             yield await self._publish(event)
 
+        async for event in self._emit_map_completions(item):
+            yield event
+
+        # Track deferred owner invocations for map/sub steps.
+        deferred_owner = (
+            isinstance(item.result, (_Map, _Run)) and item.name == item.owner
+        )
+        if deferred_owner and item.invocation is not None:
+            self._pending_owner_invocations[item.owner].append(item.invocation)
+
+        async for event in self._emit_worker_step_end(item):
+            yield event
+
+        async for event in self._handle_owner_completion(item):
+            yield event
+
+    async def _emit_map_completions(self, item: StepCompleted) -> AsyncGenerator[Event, None]:
+        """Emit MAP_COMPLETE events for finished map workers."""
         for completion in self._scheduler.on_step_completed(item.owner, item.name):
             map_complete = Event(
                 EventType.MAP_COMPLETE,
@@ -197,12 +212,8 @@ class _PipelineRunner(Generic[StateT, ContextT]):
             )
             yield await self._publish(map_complete)
 
-        deferred_owner = (
-            isinstance(item.result, (_Map, _Run)) and item.name == item.owner
-        )
-        if deferred_owner and item.invocation is not None:
-            self._pending_owner_invocations[item.owner].append(item.invocation)
-
+    async def _emit_worker_step_end(self, item: StepCompleted) -> AsyncGenerator[Event, None]:
+        """Emit STEP_END for a worker (non-owner) step completion."""
         if (
             item.invocation is not None
             and item.name != item.owner
@@ -222,37 +233,41 @@ class _PipelineRunner(Generic[StateT, ContextT]):
             )
             yield await self._publish(worker_end)
 
-        if item.track_owner and self._tracker.record_logical_completion(item.owner):
-            owner_invocation: InvocationContext | None = None
-            owner_pending = self._pending_owner_invocations.get(item.owner)
-            if owner_pending:
-                owner_invocation = owner_pending.pop(0)
-                if not owner_pending:
-                    self._pending_owner_invocations.pop(item.owner, None)
-            elif item.name == item.owner:
-                owner_invocation = item.invocation
+    async def _handle_owner_completion(self, item: StepCompleted) -> AsyncGenerator[Event, None]:
+        """Emit owner-level STEP_END and release barriers when an owner completes."""
+        if not (item.track_owner and self._tracker.record_logical_completion(item.owner)):
+            return
 
-            emit_owner_terminal = owner_invocation is not None and not (
-                owner_invocation == item.invocation and item.already_terminal
+        owner_invocation: InvocationContext | None = None
+        owner_pending = self._pending_owner_invocations.get(item.owner)
+        if owner_pending:
+            owner_invocation = owner_pending.pop(0)
+            if not owner_pending:
+                self._pending_owner_invocations.pop(item.owner, None)
+        elif item.name == item.owner:
+            owner_invocation = item.invocation
+
+        emit_owner_terminal = owner_invocation is not None and not (
+            owner_invocation == item.invocation and item.already_terminal
+        )
+        if emit_owner_terminal and owner_invocation is not None:
+            # For owner-level STEP_END, attach step_meta only when
+            # the owner is the same as the completing step (simple steps).
+            owner_meta = item.step_meta if item.name == item.owner else None
+            end_event = Event(
+                EventType.STEP_END,
+                item.owner,
+                self._ctx.state,
+                node_kind=owner_invocation.node_kind,
+                invocation_id=owner_invocation.invocation_id,
+                parent_invocation_id=owner_invocation.parent_invocation_id,
+                owner_invocation_id=owner_invocation.owner_invocation_id,
+                attempt=owner_invocation.attempt,
+                scope=owner_invocation.scope,
+                meta=owner_meta,
             )
-            if emit_owner_terminal and owner_invocation is not None:
-                # For owner-level STEP_END, attach step_meta only when
-                # the owner is the same as the completing step (simple steps).
-                owner_meta = item.step_meta if item.name == item.owner else None
-                end_event = Event(
-                    EventType.STEP_END,
-                    item.owner,
-                    self._ctx.state,
-                    node_kind=owner_invocation.node_kind,
-                    invocation_id=owner_invocation.invocation_id,
-                    parent_invocation_id=owner_invocation.parent_invocation_id,
-                    owner_invocation_id=owner_invocation.owner_invocation_id,
-                    attempt=owner_invocation.attempt,
-                    scope=owner_invocation.scope,
-                    meta=owner_meta,
-                )
-                yield await self._publish(end_event)
-            self._barriers.handle_completion(item.owner)
+            yield await self._publish(end_event)
+        self._barriers.handle_completion(item.owner)
 
     async def _startup_phase(
         self,

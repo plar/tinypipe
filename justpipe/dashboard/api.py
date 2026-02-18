@@ -36,23 +36,25 @@ class DashboardAPI:
 
     def get_pipeline(self, pipeline_hash: str) -> dict[str, Any] | None:
         """Pipeline detail including topology from pipeline.json."""
-        for info in self._registry.list_pipelines():
-            if info.hash == pipeline_hash:
-                # Load pipeline.json for DAG topology
-                pipeline_json_path = info.path.parent / "pipeline.json"
-                topology: dict[str, Any] | None = None
-                if pipeline_json_path.exists():
-                    try:
-                        topology = json.loads(pipeline_json_path.read_text())
-                    except (json.JSONDecodeError, OSError):
-                        pass
+        pipelines_by_hash = {info.hash: info for info in self._registry.list_pipelines()}
+        info = pipelines_by_hash.get(pipeline_hash)
+        if info is None:
+            return None
 
-                backend = self._registry.get_backend(info.hash)
-                runs = backend.list_runs(limit=MAX_QUERY_LIMIT)
-                summary = serialize_pipeline(info, runs)
-                summary["topology"] = topology
-                return summary
-        return None
+        # Load pipeline.json for DAG topology
+        pipeline_json_path = info.path.parent / "pipeline.json"
+        topology: dict[str, Any] | None = None
+        if pipeline_json_path.exists():
+            try:
+                topology = json.loads(pipeline_json_path.read_text())
+            except (json.JSONDecodeError, OSError):
+                pass
+
+        backend = self._registry.get_backend(info.hash)
+        runs = backend.list_runs(limit=MAX_QUERY_LIMIT)
+        summary = serialize_pipeline(info, runs)
+        summary["topology"] = topology
+        return summary
 
     def list_runs(
         self,

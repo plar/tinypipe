@@ -9,8 +9,9 @@ from collections.abc import Callable
 from justpipe.middleware import Middleware
 from justpipe.types import (
     Event,
+    HookSpec,
+    InjectionMetadataMap,
 )
-from justpipe._internal.types import HookSpec, InjectionMetadataMap
 from justpipe._internal.definition.step_registry import _StepRegistry
 from justpipe._internal.definition.middleware_coordinator import _MiddlewareCoordinator
 from justpipe._internal.definition.type_resolver import _TypeResolver

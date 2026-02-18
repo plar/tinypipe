@@ -31,16 +31,15 @@ class _Orchestrator(Generic[StateT, ContextT], TaskOrchestrator[StateT, ContextT
         ctx: _RunContext[StateT, ContextT],
         kernel: _RuntimeKernel,
         tracker: _ExecutionTracker,
-        step_execution: _StepExecutionCoordinator[StateT, ContextT],
-        failure_handler: _FailureHandler,
         metrics: _RuntimeMetricsRecorder,
     ) -> None:
         self._ctx = ctx
         self._kernel = kernel
         self._tracker = tracker
-        self._step_execution = step_execution
-        self._failure_handler = failure_handler
         self._metrics = metrics
+        # Set post-construction by _PipelineRunner to break cyclic dependency.
+        self._step_execution: _StepExecutionCoordinator[StateT, ContextT] = None  # type: ignore[assignment]
+        self._failure_handler: _FailureHandler = None  # type: ignore[assignment]
 
     # --- StateContextView ---
     @property

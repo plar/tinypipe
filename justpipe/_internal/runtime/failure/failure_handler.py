@@ -100,6 +100,18 @@ class _FailureHandler:
                 attempt=invocation.attempt if invocation else 1,
                 scope=invocation.scope if invocation else (),
             )
+            # Complete the step without emitting STEP_ERROR.
+            await self._orchestrator.complete_step(
+                name=name,
+                owner=owner,
+                result=None,
+                payload=None,
+                track_owner=track_owner,
+                invocation=invocation,
+                already_terminal=True,
+                step_meta=step_meta,
+            )
+            return
         self._log_error(name, error, state)
         await self._report_error(
             name,

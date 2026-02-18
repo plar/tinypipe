@@ -2,18 +2,18 @@
 
 import html
 import time
-from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any
 
 from justpipe._internal.shared.utils import format_duration
 from justpipe.observability import Observer, ObserverMeta
+from justpipe.observability._step_pairing import pair_step_events
 from justpipe.observability._worker_cleanup import remove_worker_entries
 from justpipe.types import Event, EventType
 
 
 @dataclass
-class StepInfo:
+class _TimelineSlot:
     """Information about a step for timeline visualization."""
 
     name: str
@@ -168,32 +168,18 @@ class TimelineVisualizer(Observer):
 
         return (timestamp - self.pipeline_start) / total
 
-    def _build_step_info(self) -> list[StepInfo]:
+    def _build_step_info(self) -> list[_TimelineSlot]:
         """Group events into step start/end pairs. Shared by all renderers."""
-        step_events: dict[str, list[TimelineEvent]] = defaultdict(list)
-        for event in self.events:
-            if event.event_type in {EventType.STEP_START, EventType.STEP_END}:
-                step_events[event.stage].append(event)
-
-        step_info: list[StepInfo] = []
-        for step, events in step_events.items():
-            start_event = next(
-                (e for e in events if e.event_type == EventType.STEP_START), None
-            )
-            end_event = next(
-                (e for e in events if e.event_type == EventType.STEP_END), None
-            )
-            if start_event and end_event:
-                duration = end_event.duration or 0.0
-                step_info.append(
-                    StepInfo(
-                        name=step,
-                        start=start_event.timestamp,
-                        end=end_event.timestamp,
-                        duration=duration,
-                    )
-                )
-
+        raw = [
+            (e.stage, e.event_type, e.timestamp)
+            for e in self.events
+            if e.event_type in {EventType.STEP_START, EventType.STEP_END, EventType.STEP_ERROR}
+        ]
+        spans = pair_step_events(raw)
+        step_info = [
+            _TimelineSlot(name=s.step_name, start=s.start, end=s.end, duration=s.duration)
+            for s in spans
+        ]
         step_info.sort(key=lambda x: x.start)
         return step_info
 
@@ -226,7 +212,7 @@ class TimelineVisualizer(Observer):
         # Build step info and normalize timestamps for ASCII rendering
         raw_steps = self._build_step_info()
         step_info = [
-            StepInfo(
+            _TimelineSlot(
                 name=s.name,
                 start=self._normalize_time(s.start),
                 end=self._normalize_time(s.end),
@@ -299,7 +285,7 @@ class TimelineVisualizer(Observer):
         # Build step info and convert to percentages for HTML rendering
         raw_steps = self._build_step_info()
         step_info = [
-            StepInfo(
+            _TimelineSlot(
                 name=s.name,
                 start=self._normalize_time(s.start) * 100,
                 end=0.0,  # Not used in HTML rendering
@@ -389,7 +375,7 @@ class TimelineVisualizer(Observer):
                 start_ms = int((s.start - self.pipeline_start) * 1000)
                 end_ms = int((s.end - self.pipeline_start) * 1000)
                 step_info.append(
-                    StepInfo(
+                    _TimelineSlot(
                         name=s.name, start=start_ms, end=end_ms, duration=s.duration
                     )
                 )

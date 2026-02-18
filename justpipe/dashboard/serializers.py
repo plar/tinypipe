@@ -9,9 +9,10 @@ from typing import Any
 
 from justpipe.cli.formatting import parse_run_meta
 from justpipe.cli.registry import PipelineInfo
+from justpipe.observability._step_pairing import pair_step_events
 from justpipe.observability.compare import RunComparison
 from justpipe.storage.interface import RunRecord, StoredEvent
-from justpipe.types import EventType, PipelineTerminalStatus
+from justpipe.types import PipelineTerminalStatus
 
 
 def serialize_run(
@@ -144,40 +145,18 @@ def serialize_stats(runs: list[RunRecord], days: int = 7) -> dict[str, Any]:
 
 def serialize_timeline(events: list[StoredEvent]) -> list[dict[str, Any]]:
     """Extract step timing data from events for timeline visualization."""
-    step_starts: dict[str, str] = {}  # step_name → iso timestamp
-    entries: list[dict[str, Any]] = []
-
-    for event in events:
-        step_name = event.step_name or "unknown"
-        if event.event_type == EventType.STEP_START:
-            step_starts[step_name] = event.timestamp.isoformat()
-        elif event.event_type == EventType.STEP_END and step_name in step_starts:
-            start_ts = step_starts[step_name]
-            duration = (
-                event.timestamp - datetime.fromisoformat(start_ts)
-            ).total_seconds()
-            entries.append(
-                {
-                    "step_name": step_name,
-                    "start_time": start_ts,
-                    "end_time": event.timestamp.isoformat(),
-                    "duration_seconds": round(duration, 4),
-                    "status": "success",
-                }
-            )
-        elif event.event_type == EventType.STEP_ERROR and step_name in step_starts:
-            start_ts = step_starts[step_name]
-            duration = (
-                event.timestamp - datetime.fromisoformat(start_ts)
-            ).total_seconds()
-            entries.append(
-                {
-                    "step_name": step_name,
-                    "start_time": start_ts,
-                    "end_time": event.timestamp.isoformat(),
-                    "duration_seconds": round(duration, 4),
-                    "status": "error",
-                }
-            )
-
-    return entries
+    raw = [
+        (event.step_name or "unknown", event.event_type, event.timestamp)
+        for event in events
+    ]
+    spans = pair_step_events(raw)
+    return [
+        {
+            "step_name": s.step_name,
+            "start_time": s.start.isoformat(),
+            "end_time": s.end.isoformat(),
+            "duration_seconds": round(s.duration, 4),
+            "status": s.status,
+        }
+        for s in spans
+    ]

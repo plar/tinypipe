@@ -117,7 +117,7 @@ async def test_default_logging(caplog: pytest.LogCaptureFixture) -> None:
 @pytest.mark.asyncio
 async def test_step_redirect_via_next() -> None:
     pipe: Pipe[dict[str, Any], None] = Pipe()
-    from justpipe._internal.types import _Next
+    from justpipe.types import _Next
 
     async def handle_error(error: Exception, state: dict[str, Any]) -> _Next:
         return _Next("recovery")

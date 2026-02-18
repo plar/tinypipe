@@ -3,7 +3,7 @@
 import pytest
 from typing import Any
 from justpipe import Pipe, EventType, Stop, DefinitionError
-from justpipe._internal.types import _Next
+from justpipe.types import _Next
 
 
 @pytest.mark.asyncio

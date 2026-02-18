@@ -139,9 +139,6 @@ class Event:
     meta: dict[str, Any] | None = None
 
 
-# Event schema version (for observability consumers)
-EVENT_SCHEMA_VERSION = "1.0"
-
 
 class ScopedMeta(Protocol):
     """Writable metadata scope. Used for both step and run.

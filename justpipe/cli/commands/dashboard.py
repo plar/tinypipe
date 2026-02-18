@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import importlib.resources
 import webbrowser
 from pathlib import Path
 
@@ -24,7 +25,7 @@ def dashboard_command(
 
     from justpipe.dashboard.server import create_app
 
-    static_dir = Path(__file__).resolve().parent.parent.parent / "dashboard" / "static"
+    static_dir = Path(str(importlib.resources.files("justpipe.dashboard") / "static"))
 
     app = create_app(registry, static_dir)
 

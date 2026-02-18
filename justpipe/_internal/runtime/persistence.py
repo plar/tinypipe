@@ -6,13 +6,13 @@ import asyncio
 import dataclasses
 import json
 import logging
-import os
 import time
 from datetime import datetime, timedelta
 from enum import Enum
 from pathlib import Path
 from typing import Any
 
+from justpipe._internal.shared.utils import resolve_storage_path
 from justpipe.observability import Observer, ObserverMeta
 from justpipe.storage.interface import RunRecord, StorageBackend
 from justpipe.types import Event, EventType, PipelineTerminalStatus
@@ -63,14 +63,6 @@ def _serialize_event(event: Event) -> str:
             data["payload"] = str(event.payload)
 
     return json.dumps(data, default=_default)
-
-
-def _resolve_storage_path() -> Path:
-    """Resolve the base storage directory from env or default."""
-    raw = os.getenv("JUSTPIPE_STORAGE_PATH")
-    if raw:
-        return Path(raw).expanduser()
-    return Path.home() / ".justpipe"
 
 
 class _AutoPersistenceObserver(Observer):
@@ -137,9 +129,9 @@ class _AutoPersistenceObserver(Observer):
             end_time = time.time()
             actual_duration = duration_s or (end_time - self._start_time)
 
-            # Parse last event (FINISH) for terminal data
-            for serialized in reversed(self._events):
-                parsed = json.loads(serialized)
+            # The FINISH event is always the last event in the buffer.
+            if self._events:
+                parsed = json.loads(self._events[-1])
                 if parsed.get("type") == EventType.FINISH.value and isinstance(
                     parsed.get("payload"), dict
                 ):
@@ -158,7 +150,6 @@ class _AutoPersistenceObserver(Observer):
                     dur = payload.get("duration_s")
                     if dur is not None:
                         actual_duration = dur
-                    break
 
             if error and status == PipelineTerminalStatus.SUCCESS:
                 status = PipelineTerminalStatus.FAILED
@@ -195,7 +186,7 @@ class _AutoPersistenceObserver(Observer):
         """Write pipeline descriptor alongside the storage."""
         pipeline_json: Path | None = None
         try:
-            storage_dir = _resolve_storage_path() / self._pipeline_hash
+            storage_dir = resolve_storage_path() / self._pipeline_hash
             storage_dir.mkdir(parents=True, exist_ok=True)
             pipeline_json = storage_dir / "pipeline.json"
             if not pipeline_json.exists():

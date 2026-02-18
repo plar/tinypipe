@@ -34,7 +34,6 @@ justpipe = "justpipe.cli.main:main"
 retry = [
     "tenacity>=9.1.2",
 ]
-observability = []
 dashboard = [
     "fastapi>=0.100",
     "uvicorn[standard]>=0.20",

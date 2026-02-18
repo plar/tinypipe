@@ -5,8 +5,9 @@ from collections.abc import Callable
 from justpipe.types import (
     CancellationToken,
     DefinitionError,
+    InjectionMetadata,
+    InjectionSource,
 )
-from justpipe._internal.types import InjectionMetadata, InjectionSource
 
 STATE_ALIASES: frozenset[str] = frozenset({"s", "state"})
 CONTEXT_ALIASES: frozenset[str] = frozenset({"c", "ctx", "context"})

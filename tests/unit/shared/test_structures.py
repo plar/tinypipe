@@ -1,5 +1,4 @@
-from justpipe.types import Event, EventType
-from justpipe._internal.types import _Next
+from justpipe.types import Event, EventType, _Next
 from justpipe._internal.shared.utils import _resolve_name
 
 

@@ -6,8 +6,9 @@ from justpipe.types import (
     CancellationToken,
     Event,
     EventType,
+    HookSpec,
+    InjectionMetadata,
 )
-from justpipe._internal.types import HookSpec, InjectionMetadata
 from justpipe._internal.shared.utils import _resolve_injection_kwargs
 
 StateT = TypeVar("StateT")

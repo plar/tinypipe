@@ -15,8 +15,7 @@ from justpipe._internal.runtime.orchestration.control import (
     InvocationContext,
     StepCompleted,
 )
-from justpipe._internal.types import _Map
-from justpipe.types import Event, EventType, NodeKind
+from justpipe.types import Event, EventType, NodeKind, _Map
 
 
 def _empty_config(queue_size: int = 0) -> RunnerConfig[Any, Any]:

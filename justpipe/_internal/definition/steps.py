@@ -9,8 +9,10 @@ from justpipe.types import (
     BarrierType,
     Stop,
     StepContext,
+    _Map,
+    _Next,
+    _Run,
 )
-from justpipe._internal.types import _Map, _Next, _Run
 
 if TYPE_CHECKING:
     from justpipe.middleware import Middleware

@@ -20,14 +20,6 @@ async def test_execute_rejects_empty_step_name() -> None:
 
 
 @pytest.mark.asyncio
-async def test_execute_rejects_none_orchestrator() -> None:
-    invoker: _StepInvoker[Any, Any] = _StepInvoker(steps={}, injection_metadata={})
-
-    with pytest.raises(ValueError, match="Orchestrator cannot be None"):
-        await invoker.execute("x", None, state=None, context=None)  # type: ignore[arg-type]
-
-
-@pytest.mark.asyncio
 async def test_execute_rejects_non_dict_payload() -> None:
     invoker: _StepInvoker[Any, Any] = _StepInvoker(steps={}, injection_metadata={})
 

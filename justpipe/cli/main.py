@@ -1,26 +1,17 @@
 """Main CLI entry point for justpipe commands."""
 
-import os
-from pathlib import Path
 from typing import Any
 
 import click
 
+from justpipe._internal.shared.utils import resolve_storage_path
 from justpipe.cli.registry import PipelineRegistry
 from justpipe.types import PipelineTerminalStatus
 
 
-def get_storage_dir() -> Path:
-    """Get storage directory from environment or default."""
-    raw = os.getenv("JUSTPIPE_STORAGE_PATH")
-    if raw:
-        return Path(raw).expanduser()
-    return Path.home() / ".justpipe"
-
-
 def get_registry() -> PipelineRegistry:
     """Get pipeline registry for the storage directory."""
-    storage_dir = get_storage_dir()
+    storage_dir = resolve_storage_path()
     storage_dir.mkdir(parents=True, exist_ok=True)
     return PipelineRegistry(storage_dir)
 

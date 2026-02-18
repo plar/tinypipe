@@ -95,6 +95,8 @@ class _StepExecutionCoordinator(Generic[StateT, ContextT]):
                 invocation_id=f"orphan:{name}",
                 node_kind=node_kind,
             )
+        elapsed = 0.0
+        step_meta_obj = _ScopedMeta()
         try:
             await self._emit_with_context(
                 EventType.STEP_START,
@@ -103,7 +105,6 @@ class _StepExecutionCoordinator(Generic[StateT, ContextT]):
                 node_kind=invocation.node_kind,
                 invocation=invocation,
             )
-            step_meta_obj = _ScopedMeta()
             token = _current_step_meta_var.set(step_meta_obj)
             t0 = time.monotonic()
             try:
