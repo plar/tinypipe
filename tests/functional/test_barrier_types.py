@@ -1,9 +1,9 @@
 from typing import Any
 
 import asyncio
-import pytest
 
-from justpipe import Pipe, BarrierType
+from justpipe import Pipe
+from justpipe.types import BarrierType
 
 
 async def test_barrier_any_executes_on_first_parent() -> None:

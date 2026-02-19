@@ -4,7 +4,8 @@ from unittest.mock import patch
 
 import pytest
 
-from justpipe import Pipe, StepContext
+from justpipe import Pipe
+from justpipe.types import StepContext
 
 
 def test_middleware_kwargs_passing() -> None:

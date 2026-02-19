@@ -68,6 +68,10 @@ def _serialize_event(event: Event) -> str:
 class _AutoPersistenceObserver(Observer):
     """Observer that buffers events in memory and flushes to a StorageBackend at FINISH.
 
+    When *flush_interval* is set, events are flushed incrementally via
+    ``backend.append_events()`` every *flush_interval* events to bound
+    memory usage for long-running pipelines.
+
     Pipeline execution NEVER fails due to persistence errors.
     """
 
@@ -76,13 +80,16 @@ class _AutoPersistenceObserver(Observer):
         backend: StorageBackend,
         pipeline_hash: str,
         describe_snapshot: dict[str, Any],
+        flush_interval: int | None = None,
     ) -> None:
         self._backend = backend
         self._pipeline_hash = pipeline_hash
         self._describe_snapshot = describe_snapshot
+        self._flush_interval = flush_interval
 
         # Per-run state
         self._events: list[str] = []
+        self._flushed_count: int = 0
         self._run_id: str | None = None
         self._start_time: float = 0
 
@@ -90,6 +97,7 @@ class _AutoPersistenceObserver(Observer):
         self, state: Any, context: Any, meta: ObserverMeta
     ) -> None:
         self._events = []
+        self._flushed_count = 0
         self._run_id = meta.run_id
         self._start_time = time.time()
 
@@ -100,6 +108,14 @@ class _AutoPersistenceObserver(Observer):
             self._events.append(_serialize_event(event))
         except Exception as exc:
             logger.warning("Failed to serialize event: %s", exc)
+            return
+
+        if (
+            self._flush_interval
+            and self._run_id
+            and len(self._events) >= self._flush_interval
+        ):
+            await self._flush_intermediate()
 
     async def on_pipeline_end(
         self, state: Any, context: Any, meta: ObserverMeta, duration_s: float
@@ -110,6 +126,22 @@ class _AutoPersistenceObserver(Observer):
         self, state: Any, context: Any, meta: ObserverMeta, error: Exception
     ) -> None:
         await self._flush(error=error)
+
+    async def _flush_intermediate(self) -> None:
+        """Flush buffered events incrementally without finalizing the run."""
+        if not self._run_id or not self._events:
+            return
+        try:
+            batch = list(self._events)
+            await asyncio.to_thread(
+                self._backend.append_events, self._run_id, batch
+            )
+            self._flushed_count += len(batch)
+            self._events.clear()
+        except Exception as exc:
+            logger.warning(
+                "Intermediate flush failed for run %s: %s", self._run_id, exc
+            )
 
     async def _flush(
         self,
@@ -166,7 +198,21 @@ class _AutoPersistenceObserver(Observer):
                 run_meta=run_meta,
             )
 
-            await asyncio.to_thread(self._backend.save_run, run, self._events)
+            if self._flushed_count > 0:
+                # Some events were already flushed incrementally via
+                # append_events. Flush remaining, then save_run with
+                # an empty list (all events already in DB).
+                if self._events:
+                    await asyncio.to_thread(
+                        self._backend.append_events,
+                        self._run_id,
+                        self._events,
+                    )
+                await asyncio.to_thread(self._backend.save_run, run, [])
+            else:
+                await asyncio.to_thread(
+                    self._backend.save_run, run, self._events
+                )
 
             # Write pipeline.json alongside the DB
             self._write_pipeline_json()
@@ -175,11 +221,12 @@ class _AutoPersistenceObserver(Observer):
             logger.warning(
                 "Failed to persist run %s (%d events lost): %s",
                 self._run_id,
-                len(self._events),
+                len(self._events) + self._flushed_count,
                 exc,
             )
         finally:
             self._events = []
+            self._flushed_count = 0
             self._run_id = None
 
     def _write_pipeline_json(self) -> None:

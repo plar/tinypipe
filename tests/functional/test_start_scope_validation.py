@@ -4,12 +4,8 @@ from typing import Any
 
 import pytest
 
-from justpipe import (
-    DefinitionError,
-    EventType,
-    Pipe,
-    PipelineValidationWarning,
-)
+from justpipe import DefinitionError, EventType, Pipe
+from justpipe.types import PipelineValidationWarning
 
 
 async def test_start_scope_missing_all_barrier_parent_strict_errors() -> None:

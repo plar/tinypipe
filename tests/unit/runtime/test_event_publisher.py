@@ -1,7 +1,6 @@
 from typing import Any
 from unittest.mock import AsyncMock
 
-import pytest
 
 from justpipe._internal.runtime.orchestration.event_publisher import (
     make_event_publisher,

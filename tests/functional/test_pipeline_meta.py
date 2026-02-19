@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-import pytest
 
 from justpipe import EventType, Meta, Pipe
 from justpipe.types import Event

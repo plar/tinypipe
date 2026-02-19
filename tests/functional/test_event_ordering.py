@@ -10,7 +10,6 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-import pytest
 
 from justpipe import EventType, Pipe, Suspend
 from justpipe.types import (

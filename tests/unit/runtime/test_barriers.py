@@ -1,6 +1,5 @@
 from typing import Any, cast
 
-import pytest
 
 from justpipe._internal.graph.dependency_graph import TransitionResult
 from justpipe._internal.runtime.orchestration.barrier_manager import _BarrierManager

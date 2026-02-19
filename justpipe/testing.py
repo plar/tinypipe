@@ -79,8 +79,15 @@ class TestPipe(Generic[StateT, ContextT]):
         Returns an AsyncMock that will be called instead of the original step.
         """
         if step_name not in self.pipe.registry.steps:
-            available = ", ".join(self.pipe.registry.steps.keys())
-            raise ValueError(f"Step '{step_name}' not found. Available: {available}")
+            from justpipe._internal.shared.utils import suggest_similar
+
+            available = sorted(self.pipe.registry.steps.keys())
+            available_str = ", ".join(available)
+            msg = f"Step '{step_name}' not found. Available: {available_str}"
+            suggestion = suggest_similar(step_name, available)
+            if suggestion:
+                msg += f" Did you mean '{suggestion}'?"
+            raise ValueError(msg)
 
         # Create the mock
         m = AsyncMock(return_value=return_value, side_effect=side_effect)

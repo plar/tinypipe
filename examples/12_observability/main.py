@@ -12,7 +12,8 @@ import asyncio
 from dataclasses import dataclass
 from pathlib import Path
 
-from justpipe import Pipe, EventType, PipelineEndData
+from justpipe import Pipe, EventType
+from justpipe.types import PipelineEndData
 from justpipe.observability import (
     EventLogger,
     TimelineVisualizer,

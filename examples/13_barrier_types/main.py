@@ -2,7 +2,8 @@ import asyncio
 import random
 from dataclasses import dataclass, field
 from pathlib import Path
-from justpipe import Pipe, BarrierType, EventType
+from justpipe import Pipe, EventType
+from justpipe.types import BarrierType
 from examples.utils import save_graph
 
 

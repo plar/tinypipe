@@ -22,7 +22,15 @@ class InMemoryBackend:
 
     def save_run(self, run: RunRecord, events: list[str]) -> None:
         self._runs[run.run_id] = run
-        self._events[run.run_id] = list(events)
+        if events:
+            existing = self._events.get(run.run_id, [])
+            existing.extend(events)
+            self._events[run.run_id] = existing
+        # If events is empty, keep any previously appended events
+
+    def append_events(self, run_id: str, events: list[str]) -> None:
+        existing = self._events.setdefault(run_id, [])
+        existing.extend(events)
 
     def get_run(self, run_id: str) -> RunRecord | None:
         return self._runs.get(run_id)

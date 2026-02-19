@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 from typing import Any, cast
 
-import pytest
 
 from justpipe._internal.runtime.execution.step_error_store import _StepErrorStore
 from justpipe._internal.runtime.execution.step_execution_coordinator import (

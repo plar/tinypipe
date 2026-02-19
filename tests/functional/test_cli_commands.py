@@ -9,7 +9,7 @@ from click.testing import CliRunner
 
 from justpipe.cli.main import cli
 from justpipe.storage.sqlite import SQLiteBackend
-from justpipe.types import EventType, PipelineTerminalStatus
+from justpipe.types import PipelineTerminalStatus
 from tests.factories import make_events, make_run
 
 

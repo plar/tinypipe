@@ -2,7 +2,6 @@
 
 from typing import Any
 
-import pytest
 
 from justpipe._internal.runtime.engine.pipeline_runner import _PipelineRunner
 from justpipe._internal.runtime.engine.composition import RunnerConfig, build_runner

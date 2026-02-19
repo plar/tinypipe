@@ -2,7 +2,8 @@ import pytest
 from unittest.mock import patch
 from typing import Any
 from collections.abc import Callable
-from justpipe import Pipe, simple_logging_middleware, StepContext
+from justpipe import Pipe, simple_logging_middleware
+from justpipe.types import StepContext
 
 
 @pytest.mark.parametrize(

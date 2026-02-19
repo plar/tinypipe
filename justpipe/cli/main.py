@@ -2,7 +2,13 @@
 
 from typing import Any
 
-import click
+try:
+    import click
+except ImportError:
+    raise ImportError(
+        "The justpipe CLI requires extra dependencies. "
+        "Install them with: pip install 'justpipe[cli]'"
+    ) from None
 
 from justpipe._internal.shared.utils import resolve_storage_path
 from justpipe.cli.registry import PipelineRegistry

@@ -67,6 +67,7 @@ class Pipe(Generic[StateT, ContextT]):
         failure_classification: FailureClassificationConfig | None = None,
         metadata: dict[str, Any] | None = None,
         persist: bool | None = None,
+        flush_interval: int | None = None,
     ):
         """Create a new pipeline with explicit type parameters.
 
@@ -89,6 +90,9 @@ class Pipe(Generic[StateT, ContextT]):
                 via ``ctx.meta.pipeline``).
             persist: Enable local persistence of runs and events. If None,
                 uses JUSTPIPE_PERSIST env var. Default: False.
+            flush_interval: When persist is enabled, flush events to storage
+                every *flush_interval* events to bound memory. None (default)
+                buffers all events until pipeline completion.
         """
         self.name = name
         self.strict = strict
@@ -100,6 +104,7 @@ class Pipe(Generic[StateT, ContextT]):
         )
         self._metadata = metadata or {}
         self._persist = _resolve_bool_flag(persist, "JUSTPIPE_PERSIST")
+        self._flush_interval = flush_interval
 
         self.state_type: type[Any] = state_type or type(None)
         self.context_type: type[Any] = context_type or type(None)
@@ -207,6 +212,14 @@ class Pipe(Generic[StateT, ContextT]):
         max_concurrency: int | None = None,
         **kwargs: Any,
     ) -> Callable[[Callable[..., Any]], Callable[..., Any]]:
+        """Register a fan-out map step that spawns a worker per item.
+
+        Warning:
+            Map workers execute concurrently and share the same state
+            reference. If you use a mutable dataclass as state, writes
+            from different workers can race. Use a frozen dataclass or
+            explicit synchronization if workers need to update state.
+        """
         return self.registry.step_registry.map(
             name,
             each,
@@ -352,6 +365,7 @@ class Pipe(Generic[StateT, ContextT]):
         graph = _GraphValidator(
             self.registry.steps,
             self.registry.topology,
+            state_type=self.state_type,
         )
         graph.validate(
             start=start,
@@ -381,6 +395,7 @@ class Pipe(Generic[StateT, ContextT]):
                     backend=backend,
                     pipeline_hash=pipeline_hash,
                     describe_snapshot=self.describe(),
+                    flush_interval=self._flush_interval,
                 )
             )
 

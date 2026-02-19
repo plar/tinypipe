@@ -1,4 +1,3 @@
-import pytest
 import asyncio
 
 from justpipe import Pipe

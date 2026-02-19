@@ -10,7 +10,7 @@ A middleware is a function that receives the original step function and a `StepC
 
 ```python
 from typing import Any, Callable
-from justpipe import StepContext
+from justpipe.types import StepContext
 
 def my_middleware(func: Callable[..., Any], ctx: StepContext) -> Callable[..., Any]:
     async def wrapped(**kwargs):

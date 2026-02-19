@@ -1,6 +1,5 @@
 import asyncio
 
-import pytest
 
 from justpipe._internal.runtime.orchestration.runtime_kernel import _RuntimeKernel
 from justpipe._internal.shared.execution_tracker import _ExecutionTracker

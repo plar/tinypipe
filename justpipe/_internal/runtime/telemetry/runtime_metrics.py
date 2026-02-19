@@ -124,11 +124,13 @@ class _RuntimeMetricsRecorder:
             barrier_stats.waits += 1
 
         elif event.type == EventType.BARRIER_RELEASE:
-            start = self._barrier_starts.pop(event.stage, None)
+            barrier_start: float | None = self._barrier_starts.pop(
+                event.stage, None
+            )
             barrier_stats = self._barrier_stats[event.stage]
             barrier_stats.releases += 1
-            if start is not None:
-                duration = max(0.0, event.timestamp - start)
+            if barrier_start is not None:
+                duration = max(0.0, event.timestamp - barrier_start)
                 barrier_stats.total += duration
                 barrier_stats.max = max(barrier_stats.max, duration)
 
@@ -146,7 +148,7 @@ class _RuntimeMetricsRecorder:
             if event.stage in self._barrier_starts:
                 barrier_stats = self._barrier_stats[event.stage]
                 barrier_stats.timeouts += 1
-                self._barrier_starts.pop(event.stage, None)
+                del self._barrier_starts[event.stage]
 
     # --- Snapshot ----------------------------------------------------------------
     def snapshot(self) -> RuntimeMetrics:

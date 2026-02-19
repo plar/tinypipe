@@ -1,5 +1,4 @@
 import asyncio
-import pytest
 from typing import Any
 
 from justpipe import Pipe, EventType

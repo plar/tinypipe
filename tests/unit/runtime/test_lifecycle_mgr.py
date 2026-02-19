@@ -1,4 +1,3 @@
-import pytest
 from unittest.mock import MagicMock
 from justpipe.types import EventType, HookSpec, InjectionSource
 from justpipe._internal.runtime.orchestration.lifecycle_manager import _LifecycleManager

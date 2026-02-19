@@ -1,6 +1,5 @@
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
 
 from justpipe._internal.runtime.orchestration.control import StepCompleted
 from justpipe._internal.runtime.execution.result_handler import _ResultHandler

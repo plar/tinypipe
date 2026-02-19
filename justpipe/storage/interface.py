@@ -78,6 +78,18 @@ class StorageBackend(Protocol):
         """Find runs whose ID starts with the given prefix."""
         ...
 
+    def append_events(self, run_id: str, events: list[str]) -> None:
+        """Append events to an existing run (incremental flush).
+
+        Called periodically during long-running pipelines to avoid
+        unbounded memory. Events use ``INSERT OR IGNORE`` semantics
+        so duplicate seq values are silently skipped.
+
+        This method is optional. The default implementation is a no-op;
+        backends that support incremental persistence should override it.
+        """
+        ...
+
     def delete_run(self, run_id: str) -> bool:
         """Delete a run and its events. Returns True if found."""
         ...

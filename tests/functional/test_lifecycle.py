@@ -1,4 +1,3 @@
-import pytest
 from typing import Any
 from unittest.mock import Mock
 from justpipe import Pipe, EventType

@@ -356,3 +356,65 @@ class TestAutoPersistenceObserver:
         # First event was saved; bad event may or may not be depending on fallback
         run = backend.get_run("test-run-123")
         assert run is not None
+
+    async def test_flush_interval_incremental(self) -> None:
+        """flush_interval triggers intermediate append_events calls."""
+        backend = InMemoryBackend()
+        obs = _AutoPersistenceObserver(
+            backend=backend,
+            pipeline_hash="abc123",
+            describe_snapshot={"name": "test_pipe"},
+            flush_interval=3,
+        )
+        meta = _make_meta()
+
+        await obs.on_pipeline_start(None, None, meta)
+
+        # Send 3 events — should trigger intermediate flush
+        for i in range(3):
+            await obs.on_event(
+                None, None, meta, _make_event(stage=f"step_{i}")
+            )
+
+        # Events should have been flushed incrementally
+        assert obs._flushed_count == 3
+        assert len(obs._events) == 0
+
+        # Send 2 more (below threshold) + finish
+        await obs.on_event(None, None, meta, _make_event(stage="step_3"))
+        await obs.on_event(None, None, meta, _make_event(stage="step_4"))
+        await obs.on_pipeline_end(None, None, meta, 1.0)
+
+        run = backend.get_run("test-run-123")
+        assert run is not None
+        assert run.status == PipelineTerminalStatus.SUCCESS
+
+        # All 5 events should be stored
+        events = backend.get_events("test-run-123")
+        assert len(events) == 5
+
+    async def test_flush_interval_none_buffers_all(self) -> None:
+        """Without flush_interval, all events buffer until end."""
+        backend = InMemoryBackend()
+        obs = _AutoPersistenceObserver(
+            backend=backend,
+            pipeline_hash="abc123",
+            describe_snapshot={"name": "test_pipe"},
+            flush_interval=None,
+        )
+        meta = _make_meta()
+
+        await obs.on_pipeline_start(None, None, meta)
+        for i in range(10):
+            await obs.on_event(
+                None, None, meta, _make_event(stage=f"step_{i}")
+            )
+
+        # Nothing flushed yet
+        assert obs._flushed_count == 0
+        assert len(obs._events) == 10
+
+        await obs.on_pipeline_end(None, None, meta, 1.0)
+
+        events = backend.get_events("test-run-123")
+        assert len(events) == 10

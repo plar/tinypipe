@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 from typing import Any
 
-import pytest
 
 from justpipe.observability import ObserverMeta, StateDiffTracker
 from justpipe.types import Event, EventType

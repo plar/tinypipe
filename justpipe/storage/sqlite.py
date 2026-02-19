@@ -74,8 +74,15 @@ class SQLiteBackend:
     def save_run(self, run: RunRecord, events: list[str]) -> None:
         conn = self._connect()
         try:
+            # If a placeholder row exists from append_events (status='running'),
+            # replace it. Otherwise use plain INSERT to detect true duplicates.
+            placeholder = conn.execute(
+                "SELECT 1 FROM runs WHERE run_id = ? AND status = 'running'",
+                (run.run_id,),
+            ).fetchone()
+            verb = "INSERT OR REPLACE" if placeholder else "INSERT"
             conn.execute(
-                """INSERT INTO runs
+                f"""{verb} INTO runs
                    (run_id, start_time, end_time, duration_s, status,
                     error_message, error_step, run_meta)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
@@ -96,6 +103,32 @@ class SQLiteBackend:
                     """INSERT INTO events (run_id, seq, timestamp, data)
                        VALUES (?, ?, ?, ?)""",
                     (run.run_id, seq, parsed.get("timestamp", 0), data),
+                )
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def append_events(self, run_id: str, events: list[str]) -> None:
+        conn = self._connect()
+        try:
+            # Ensure a placeholder run row exists for FK constraints.
+            # The final save_run call will update it with real metadata.
+            conn.execute(
+                """INSERT OR IGNORE INTO runs
+                   (run_id, start_time, status)
+                   VALUES (?, ?, ?)""",
+                (run_id, 0, "running"),
+            )
+            for data in events:
+                parsed = json.loads(data)
+                seq = parsed.get("seq", 0)
+                conn.execute(
+                    """INSERT OR IGNORE INTO events (run_id, seq, timestamp, data)
+                       VALUES (?, ?, ?, ?)""",
+                    (run_id, seq, parsed.get("timestamp", 0), data),
                 )
             conn.commit()
         except Exception:
