@@ -99,12 +99,8 @@ class _EventManager:
             "error_type": type(error).__name__,
         }
         if event:
-            extra.update(
-                {
-                    "event_type": event.type.value if hasattr(event, "type") else None,
-                    "event_stage": event.stage if hasattr(event, "stage") else None,
-                }
-            )
+            extra["event_type"] = event.type.value
+            extra["event_stage"] = event.stage
 
         logging.error(
             "Observer %s.%s error: %s",

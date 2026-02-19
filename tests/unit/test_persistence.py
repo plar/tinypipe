@@ -275,8 +275,12 @@ class TestAutoPersistenceObserver:
         ("error_class", "error_msg", "flush_via"),
         [
             pytest.param(OSError, "disk full", "end", id="os-error-end"),
-            pytest.param(RuntimeError, "connection lost", "end", id="runtime-error-end"),
-            pytest.param(PermissionError, "read-only fs", "error", id="permission-error-error"),
+            pytest.param(
+                RuntimeError, "connection lost", "end", id="runtime-error-end"
+            ),
+            pytest.param(
+                PermissionError, "read-only fs", "error", id="permission-error-error"
+            ),
         ],
     )
     async def test_backend_save_error_suppressed(
@@ -372,9 +376,7 @@ class TestAutoPersistenceObserver:
 
         # Send 3 events — should trigger intermediate flush
         for i in range(3):
-            await obs.on_event(
-                None, None, meta, _make_event(stage=f"step_{i}")
-            )
+            await obs.on_event(None, None, meta, _make_event(stage=f"step_{i}"))
 
         # Events should have been flushed incrementally
         assert obs._flushed_count == 3
@@ -406,9 +408,7 @@ class TestAutoPersistenceObserver:
 
         await obs.on_pipeline_start(None, None, meta)
         for i in range(10):
-            await obs.on_event(
-                None, None, meta, _make_event(stage=f"step_{i}")
-            )
+            await obs.on_event(None, None, meta, _make_event(stage=f"step_{i}"))
 
         # Nothing flushed yet
         assert obs._flushed_count == 0

@@ -37,18 +37,14 @@ def pair_step_events(
     for step_name, event_type, timestamp in events:
         if event_type == EventType.STEP_START:
             starts[step_name] = timestamp
-        elif event_type == EventType.STEP_END and step_name in starts:
+        elif (
+            event_type in (EventType.STEP_END, EventType.STEP_ERROR)
+            and step_name in starts
+        ):
             start_ts = starts.pop(step_name)
             duration = _compute_duration(start_ts, timestamp)
-            spans.append(
-                StepSpan(step_name, start_ts, timestamp, duration, "success")
-            )
-        elif event_type == EventType.STEP_ERROR and step_name in starts:
-            start_ts = starts.pop(step_name)
-            duration = _compute_duration(start_ts, timestamp)
-            spans.append(
-                StepSpan(step_name, start_ts, timestamp, duration, "error")
-            )
+            status = "success" if event_type == EventType.STEP_END else "error"
+            spans.append(StepSpan(step_name, start_ts, timestamp, duration, status))
 
     return spans
 

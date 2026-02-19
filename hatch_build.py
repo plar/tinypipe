@@ -15,6 +15,4 @@ class CustomBuildHook(BuildHookInterface):
         dashboard_dir = os.path.join(self.root, "dashboard-ui")
         if os.path.exists(os.path.join(dashboard_dir, "package.json")):
             subprocess.run(["npm", "ci"], cwd=dashboard_dir, check=True)
-            subprocess.run(
-                ["npm", "run", "build"], cwd=dashboard_dir, check=True
-            )
+            subprocess.run(["npm", "run", "build"], cwd=dashboard_dir, check=True)

@@ -141,23 +141,19 @@ class EventLogger(Observer):
         return event_type == EventType.STEP_ERROR
 
     def _format_event(self, event: Event) -> str:
-        timestamp = self._format_time(event.timestamp)
+        timestamp = self._colorize(self._format_time(event.timestamp), "GRAY")
         event_type = event.type.value.upper()
 
         if event.type == EventType.STEP_ERROR:
-            timestamp = self._colorize(timestamp, "GRAY")
             event_type = self._colorize(event_type.ljust(16), "RED")
             stage = self._colorize(event.stage, "RED")
         elif event.type in {EventType.BARRIER_WAIT, EventType.SUSPEND}:
-            timestamp = self._colorize(timestamp, "GRAY")
             event_type = self._colorize(event_type.ljust(16), "YELLOW")
             stage = self._colorize(event.stage, "YELLOW")
         elif event.type in {EventType.START, EventType.FINISH}:
-            timestamp = self._colorize(timestamp, "GRAY")
             event_type = self._colorize(event_type.ljust(16), "BOLD")
             stage = self._colorize(event.stage, "BOLD")
         elif event.type in {EventType.STEP_START, EventType.MAP_START}:
-            timestamp = self._colorize(timestamp, "GRAY")
             event_type = self._colorize(event_type.ljust(16), "CYAN")
             stage = event.stage
         elif event.type in {
@@ -165,11 +161,9 @@ class EventLogger(Observer):
             EventType.MAP_COMPLETE,
             EventType.BARRIER_RELEASE,
         }:
-            timestamp = self._colorize(timestamp, "GRAY")
             event_type = self._colorize(event_type.ljust(16), "GREEN")
             stage = event.stage
         else:
-            timestamp = self._colorize(timestamp, "GRAY")
             event_type = event_type.ljust(16)
             stage = event.stage
 
@@ -217,7 +211,11 @@ class EventLogger(Observer):
 
         import time as _time
 
-        timestamp = self.start_time + duration_s if self.start_time is not None else _time.time()
+        timestamp = (
+            self.start_time + duration_s
+            if self.start_time is not None
+            else _time.time()
+        )
         message = self._colorize(f"Pipeline completed in {duration_s:.2f}s", "GREEN")
         self._emit(
             LogRecord(

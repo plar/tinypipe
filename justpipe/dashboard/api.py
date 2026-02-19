@@ -36,7 +36,9 @@ class DashboardAPI:
 
     def get_pipeline(self, pipeline_hash: str) -> dict[str, Any] | None:
         """Pipeline detail including topology from pipeline.json."""
-        pipelines_by_hash = {info.hash: info for info in self._registry.list_pipelines()}
+        pipelines_by_hash = {
+            info.hash: info for info in self._registry.list_pipelines()
+        }
         info = pipelines_by_hash.get(pipeline_hash)
         if info is None:
             return None

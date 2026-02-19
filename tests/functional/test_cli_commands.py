@@ -123,7 +123,6 @@ class TestExportCommand:
         assert data["event_count"] == 4
 
 
-
 class TestStatsCommand:
     def test_stats(self, tmp_path: Path) -> None:
         backend = _setup_storage(tmp_path)

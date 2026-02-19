@@ -70,8 +70,6 @@ class _BarrierManager:
         self, name: str, timeout: float, event: asyncio.Event
     ) -> None:
         """Watch for barrier satisfaction or timeout."""
-        timed_out = False
-
         # Emit BARRIER_WAIT event when barrier starts waiting
         dependencies = (
             list(self._parents_map.get(name, [])) if self._parents_map else []
@@ -92,20 +90,8 @@ class _BarrierManager:
         try:
             # Wait for timeout OR satisfaction (via event.set())
             await asyncio.wait_for(event.wait(), timeout=timeout)
-
-            # Satisfied before timeout
-            await self._orchestrator.emit(
-                EventType.BARRIER_RELEASE,
-                name,
-                {"duration": 0},  # Could track actual duration if needed
-                node_kind=NodeKind.BARRIER,
-            )
-
         except asyncio.TimeoutError:
-            # Timed out
-            timed_out = True
             self._failed_barriers.add(name)
-
             await self._failure_handler.handle_failure(
                 name,
                 name,
@@ -115,12 +101,15 @@ class _BarrierManager:
                 self._orchestrator.context,
                 track_owner=False,
             )
-
+        else:
+            # Satisfied before timeout
+            await self._orchestrator.emit(
+                EventType.BARRIER_RELEASE,
+                name,
+                {"duration": 0},
+                node_kind=NodeKind.BARRIER,
+            )
+            await self._orchestrator.complete_step(name, name, None, track_owner=False)
         finally:
-            # Clean up (atomic operations)
             self._barrier_events.pop(name, None)
             self._barrier_tasks.pop(name, None)
-            if not timed_out:
-                await self._orchestrator.complete_step(
-                    name, name, None, track_owner=False
-                )

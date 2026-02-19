@@ -98,7 +98,6 @@ async def test_shutdown_errors_are_yielded_on_startup_failure() -> None:
     assert any(e.type == EventType.STEP_ERROR and e.stage == "shutdown" for e in events)
 
 
-
 async def test_shutdown_exception_yields_error() -> None:
     """Shutdown hook exception should yield ERROR event."""
     pipe: Pipe[Any, Any] = Pipe()

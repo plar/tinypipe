@@ -319,10 +319,7 @@ class _StepRegistry:
             )
 
             if isinstance(to, dict):
-                targets = set()
-                for target in normalized_routes.values():
-                    if target is not Stop:
-                        targets.add(target)
+                targets = {t for t in normalized_routes.values() if t is not Stop}
                 if default:
                     targets.add(_resolve_name(default))
 
@@ -401,7 +398,7 @@ class _StepRegistry:
             targets = list(self.topology.get(name, []))
             targets.extend(step.get_targets())
 
-            unique_targets = sorted(list(set(targets)))
+            unique_targets = sorted(set(targets))
 
             yield StepInfo(
                 name=name,

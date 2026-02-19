@@ -157,5 +157,3 @@ async def test_mock_startup() -> None:
     tester.restore()
     result = await tester.run(State(0))
     assert result.final_state.val == 1  # Restored, so startup ran
-
-

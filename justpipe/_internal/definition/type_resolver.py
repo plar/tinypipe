@@ -100,16 +100,8 @@ class _TypeResolver:
             elif expected_unknowns == 1:
                 error_msg += "Regular steps allow one injected parameter (e.g., 'item' in map workers). "
 
-            state_name = (
-                state_type.__name__
-                if hasattr(state_type, "__name__")
-                else str(state_type)
-            )
-            context_name = (
-                context_type.__name__
-                if hasattr(context_type, "__name__")
-                else str(context_type)
-            )
+            state_name = getattr(state_type, "__name__", str(state_type))
+            context_name = getattr(context_type, "__name__", str(context_type))
 
             error_msg += (
                 f"Parameters must be typed as {state_name} or {context_name}, "

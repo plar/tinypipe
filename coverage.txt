@@ -97,14 +97,14 @@ justpipe/_internal/__init__.py                                           0      
 justpipe/_internal/definition/__init__.py                                0      0   100%
 justpipe/_internal/definition/middleware_coordinator.py                 33      2    94%   25, 50
 justpipe/_internal/definition/pipeline_registry.py                      75      0   100%
-justpipe/_internal/definition/registry_validator.py                     46      4    91%   22-23, 29, 91
-justpipe/_internal/definition/step_registry.py                         140      4    97%   231, 282, 287, 356
-justpipe/_internal/definition/steps.py                                 127      7    94%   72, 76, 150-151, 196, 216, 219
+justpipe/_internal/definition/registry_validator.py                     44      4    91%   20-21, 27, 89
+justpipe/_internal/definition/step_registry.py                         137      4    97%   231, 282, 287, 353
+justpipe/_internal/definition/steps.py                                 125      7    94%   68, 72, 146-147, 190, 210, 213
 justpipe/_internal/definition/type_resolver.py                          62      3    95%   44-46, 55
 justpipe/_internal/graph/__init__.py                                     0      0   100%
 justpipe/_internal/graph/dependency_graph.py                            88      4    95%   64, 125-126, 152
 justpipe/_internal/graph/execution_plan.py                              21      0   100%
-justpipe/_internal/graph/graph_validator.py                            154     15    90%   44, 100, 104, 125-127, 175, 192, 259, 280-283, 299-300
+justpipe/_internal/graph/graph_validator.py                            156     16    90%   44, 100, 104, 122, 127-129, 177, 194, 261, 282-285, 301-302
 justpipe/_internal/runtime/__init__.py                                   0      0   100%
 justpipe/_internal/runtime/engine/__init__.py                            0      0   100%
 justpipe/_internal/runtime/engine/composition.py                        52      0   100%
@@ -116,28 +116,28 @@ justpipe/_internal/runtime/execution/result_handler.py                  44      
 justpipe/_internal/runtime/execution/scheduler.py                       74      2    97%   76-77
 justpipe/_internal/runtime/execution/step_error_store.py                14      1    93%   16
 justpipe/_internal/runtime/execution/step_execution_coordinator.py      46      0   100%
-justpipe/_internal/runtime/execution/step_invoker.py                    83      6    93%   53, 119, 130-133
+justpipe/_internal/runtime/execution/step_invoker.py                    77      6    92%   55, 114, 125-128
 justpipe/_internal/runtime/failure/__init__.py                           0      0   100%
 justpipe/_internal/runtime/failure/failure_handler.py                   45      0   100%
 justpipe/_internal/runtime/meta.py                                     116      2    98%   169-171
 justpipe/_internal/runtime/orchestration/__init__.py                     0      0   100%
-justpipe/_internal/runtime/orchestration/barrier_manager.py             51      0   100%
+justpipe/_internal/runtime/orchestration/barrier_manager.py             48      0   100%
 justpipe/_internal/runtime/orchestration/control.py                     25      0   100%
-justpipe/_internal/runtime/orchestration/event_manager.py               55      0   100%
+justpipe/_internal/runtime/orchestration/event_manager.py               56      0   100%
 justpipe/_internal/runtime/orchestration/event_publisher.py             15      0   100%
 justpipe/_internal/runtime/orchestration/lifecycle_manager.py           34      1    97%   91
 justpipe/_internal/runtime/orchestration/orchestrator.py                58      0   100%
 justpipe/_internal/runtime/orchestration/protocols.py                   39      0   100%
 justpipe/_internal/runtime/orchestration/runtime_kernel.py              34      1    97%   26
-justpipe/_internal/runtime/persistence.py                              120      8    93%   63, 133, 141-142, 175-176, 241-242
+justpipe/_internal/runtime/persistence.py                              118      8    93%   62, 132, 138-139, 172-173, 235-236
 justpipe/_internal/runtime/telemetry/__init__.py                         0      0   100%
-justpipe/_internal/runtime/telemetry/execution_log.py                   65      1    98%   141
+justpipe/_internal/runtime/telemetry/execution_log.py                   63      1    98%   140
 justpipe/_internal/runtime/telemetry/failure_journal.py                 38     15    61%   67, 83-121, 127, 130
-justpipe/_internal/runtime/telemetry/runtime_metrics.py                103      0   100%
+justpipe/_internal/runtime/telemetry/runtime_metrics.py                101      0   100%
 justpipe/_internal/shared/__init__.py                                    0      0   100%
 justpipe/_internal/shared/execution_tracker.py                          30      0   100%
 justpipe/_internal/shared/pipeline_hash.py                              10      0   100%
-justpipe/_internal/shared/utils.py                                      48      2    96%   42, 48
+justpipe/_internal/shared/utils.py                                      37      2    95%   42, 48
 justpipe/cli/__init__.py                                                 1      0   100%
 justpipe/cli/commands/__init__.py                                        1      0   100%
 justpipe/cli/commands/cleanup.py                                        86     41    52%   33-34, 39, 52, 55, 59-60, 90-93, 102-139
@@ -146,38 +146,38 @@ justpipe/cli/commands/dashboard.py                                      22     2
 justpipe/cli/commands/export.py                                         43     10    77%   15-19, 50-52, 56, 86
 justpipe/cli/commands/list.py                                           41      9    78%   28-29, 59-67, 78
 justpipe/cli/commands/pipelines.py                                      47      6    87%   24-25, 62-67
-justpipe/cli/commands/show.py                                           44      3    93%   37, 57, 67
+justpipe/cli/commands/show.py                                           44      3    93%   42, 62, 72
 justpipe/cli/commands/stats.py                                         110     19    83%   25-26, 32-33, 54, 111-115, 149, 153, 157, 170-172, 180-184
 justpipe/cli/commands/timeline.py                                       42     21    50%   24-25, 43-64
-justpipe/cli/formatting.py                                              37      4    89%   51, 67-69
+justpipe/cli/formatting.py                                              37      4    89%   53, 69-71
 justpipe/cli/main.py                                                    78      5    94%   7-8, 146-148, 157
-justpipe/cli/registry.py                                                73      4    95%   46, 50, 60-61
+justpipe/cli/registry.py                                                72      4    94%   46, 50, 60-61
 justpipe/dashboard/__init__.py                                           0      0   100%
-justpipe/dashboard/api.py                                               88      6    93%   50-51, 72-73, 98-99
-justpipe/dashboard/serializers.py                                       52      0   100%
-justpipe/dashboard/server.py                                            69     69     0%   6-113
+justpipe/dashboard/api.py                                               88      6    93%   52-53, 74-75, 100-101
+justpipe/dashboard/serializers.py                                       49      0   100%
+justpipe/dashboard/server.py                                            69     69     0%   6-117
 justpipe/failures.py                                                     2      2     0%   12-22
-justpipe/middleware.py                                                  58      8    86%   12-24
+justpipe/middleware.py                                                  55      8    85%   12-24
 justpipe/observability/__init__.py                                      37      4    89%   68, 81, 94, 107
-justpipe/observability/_step_pairing.py                                 31      0   100%
+justpipe/observability/_step_pairing.py                                 28      0   100%
 justpipe/observability/_worker_cleanup.py                               11      3    73%   16-18
 justpipe/observability/barrier.py                                       92      2    98%   126-127
-justpipe/observability/compare.py                                       87      9    90%   35, 121, 128, 136, 138, 158, 160, 162-163
-justpipe/observability/logger.py                                       117     19    84%   98, 117, 148-150, 152-154, 160-162, 172-174, 184-185, 192, 199, 216
+justpipe/observability/compare.py                                       83      8    90%   114, 121, 129, 131, 151, 153, 155-156
+justpipe/observability/logger.py                                       111     15    86%   98, 117, 148-149, 151-152, 157-158, 167-168, 178-179, 186, 193, 210
 justpipe/observability/state.py                                        151     23    85%   53-55, 69-71, 80-81, 106, 112-113, 142-145, 163, 174, 206, 231, 236-241, 252, 278, 290-291
-justpipe/observability/timeline.py                                     165     65    61%   88-96, 125, 131-136, 142-144, 150-152, 158, 163, 167, 200, 226-227, 263, 280-325, 360-389
-justpipe/pipe.py                                                       130     12    91%   45-50, 122-124, 135, 139, 308, 310
+justpipe/observability/timeline.py                                     163     65    60%   88-96, 125, 131-136, 142-144, 150-152, 158, 163, 167, 199, 225-226, 262, 279-324, 359-388
+justpipe/pipe.py                                                       125      7    94%   45, 117-119, 130, 134, 303, 305
 justpipe/storage/__init__.py                                             4      0   100%
 justpipe/storage/interface.py                                           32      0   100%
 justpipe/storage/memory.py                                              50      0   100%
 justpipe/storage/sqlite.py                                              98     12    88%   115-138
 justpipe/testing.py                                                    109     27    75%   22, 40-44, 82-90, 140-153, 197-199
-justpipe/types.py                                                      231      1    99%   293
+justpipe/types.py                                                      227      1    99%   290
 justpipe/visualization/__init__.py                                      20      2    90%   56-57
 justpipe/visualization/ast.py                                           40      0   100%
-justpipe/visualization/builder.py                                       99      7    93%   69, 103, 113-115, 211-213
+justpipe/visualization/builder.py                                       94      7    93%   62, 95, 105-107, 200-202
 justpipe/visualization/mermaid.py                                      215     54    75%   105, 134, 199-211, 215-221, 245-259, 280, 286-295, 300-318, 332, 340, 353, 355
 justpipe/visualization/renderer.py                                       6      0   100%
 --------------------------------------------------------------------------------------------------
-TOTAL                                                                 4885    551    89%
-============================= 563 passed in 14.34s =============================
+TOTAL                                                                 4819    542    89%
+============================= 563 passed in 14.69s =============================

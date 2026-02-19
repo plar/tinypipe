@@ -46,19 +46,14 @@ class _StepInvoker(Generic[StateT, ContextT]):
         """Return the global error hook."""
         return self._on_error
 
+    _KIND_MAP = {"map": NodeKind.MAP, "switch": NodeKind.SWITCH, "sub": NodeKind.SUB}
+
     def get_node_kind(self, name: str) -> NodeKind:
         """Resolve event node kind from a registered step name."""
         step = self._steps.get(name)
         if step is None:
             return NodeKind.STEP
-        kind = step.get_kind()
-        if kind == "map":
-            return NodeKind.MAP
-        if kind == "switch":
-            return NodeKind.SWITCH
-        if kind == "sub":
-            return NodeKind.SUB
-        return NodeKind.STEP
+        return self._KIND_MAP.get(step.get_kind(), NodeKind.STEP)
 
     async def execute(
         self,

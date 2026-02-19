@@ -48,11 +48,7 @@ class _BaseStep(ABC):
     @property
     def _active_func(self) -> Callable[..., Any]:
         """Return the wrapped function if middleware was applied, otherwise the original."""
-        return (
-            self._wrapped_func
-            if self._wrapped_func is not None
-            else self._original_func
-        )
+        return self._wrapped_func or self._original_func
 
     def wrap_middleware(self, middleware: list["Middleware"]) -> None:
         """Apply middleware to the step function."""
@@ -174,9 +170,7 @@ class _SwitchStep(_BaseStep):
     def get_targets(self) -> list[str]:
         targets: list[str] = []
         if isinstance(self.to, dict):
-            for t in self.to.values():
-                if isinstance(t, str):
-                    targets.append(t)
+            targets.extend(t for t in self.to.values() if isinstance(t, str))
         if self.default:
             targets.append(self.default)
         return targets

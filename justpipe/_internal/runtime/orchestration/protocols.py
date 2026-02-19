@@ -11,8 +11,6 @@ from justpipe.types import EventType, NodeKind
 
 if TYPE_CHECKING:
     from justpipe._internal.runtime.orchestration.control import InvocationContext
-
-if TYPE_CHECKING:
     from justpipe._internal.shared.execution_tracker import _ExecutionTracker
 
 StateT = TypeVar("StateT", covariant=True)

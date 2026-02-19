@@ -35,17 +35,19 @@ def format_timestamp(dt: datetime) -> str:
     return dt.strftime("%Y-%m-%d %H:%M:%S")
 
 
+_STATUS_COLORS = {
+    "success": "green",
+    "failed": "red",
+    "timeout": "yellow",
+    "cancelled": "yellow",
+    "client_closed": "yellow",
+}
+
+
 def format_status(status: PipelineTerminalStatus) -> str:
     """Format status with rich markup color."""
     value = status.value
-    color_map = {
-        "success": "green",
-        "failed": "red",
-        "timeout": "yellow",
-        "cancelled": "yellow",
-        "client_closed": "yellow",
-    }
-    color = color_map.get(value, "")
+    color = _STATUS_COLORS.get(value)
     if color:
         return f"[{color}]{value}[/{color}]"
     return value

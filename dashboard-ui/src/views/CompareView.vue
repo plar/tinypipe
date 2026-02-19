@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { Comparison } from '@/types'
 import { api } from '@/api/client'
@@ -35,11 +35,11 @@ onMounted(() => {
   }
 })
 
-const sortedSteps = () => {
+const sortedSteps = computed(() => {
   if (!comparison.value) return []
   return Object.entries(comparison.value.step_timing_diff)
     .sort(([, a], [, b]) => Math.abs(b) - Math.abs(a))
-}
+})
 </script>
 
 <template>
@@ -120,7 +120,7 @@ const sortedSteps = () => {
         </div>
 
         <!-- Step timing diff table -->
-        <div v-if="sortedSteps().length" class="rounded-lg border border-border">
+        <div v-if="sortedSteps.length" class="rounded-lg border border-border">
           <h3 class="border-b border-border px-4 py-3 text-sm font-medium">Step Timing Differences</h3>
           <table class="w-full text-sm">
             <thead class="bg-muted text-left text-muted-foreground">
@@ -131,7 +131,7 @@ const sortedSteps = () => {
               </tr>
             </thead>
             <tbody class="divide-y divide-border">
-              <tr v-for="[step, diff] in sortedSteps()" :key="step">
+              <tr v-for="[step, diff] in sortedSteps" :key="step">
                 <td class="px-4 py-2 font-mono text-xs">{{ step }}</td>
                 <td
                   class="px-4 py-2 text-right font-mono text-xs"

@@ -178,7 +178,9 @@ class _PipelineRunner(Generic[StateT, ContextT]):
         self._metrics.record_task_completion(self._tracker.total_active_tasks)
 
         async for event in self._results.process_step_result(
-            item, self._ctx.state, self._ctx.context,
+            item,
+            self._ctx.state,
+            self._ctx.context,
         ):
             yield await self._publish(event)
 
@@ -198,7 +200,9 @@ class _PipelineRunner(Generic[StateT, ContextT]):
         async for event in self._handle_owner_completion(item):
             yield event
 
-    async def _emit_map_completions(self, item: StepCompleted) -> AsyncGenerator[Event, None]:
+    async def _emit_map_completions(
+        self, item: StepCompleted
+    ) -> AsyncGenerator[Event, None]:
         """Emit MAP_COMPLETE events for finished map workers."""
         for completion in self._scheduler.on_step_completed(item.owner, item.name):
             map_complete = Event(
@@ -212,7 +216,9 @@ class _PipelineRunner(Generic[StateT, ContextT]):
             )
             yield await self._publish(map_complete)
 
-    async def _emit_worker_step_end(self, item: StepCompleted) -> AsyncGenerator[Event, None]:
+    async def _emit_worker_step_end(
+        self, item: StepCompleted
+    ) -> AsyncGenerator[Event, None]:
         """Emit STEP_END for a worker (non-owner) step completion."""
         if (
             item.invocation is not None
@@ -233,9 +239,13 @@ class _PipelineRunner(Generic[StateT, ContextT]):
             )
             yield await self._publish(worker_end)
 
-    async def _handle_owner_completion(self, item: StepCompleted) -> AsyncGenerator[Event, None]:
+    async def _handle_owner_completion(
+        self, item: StepCompleted
+    ) -> AsyncGenerator[Event, None]:
         """Emit owner-level STEP_END and release barriers when an owner completes."""
-        if not (item.track_owner and self._tracker.record_logical_completion(item.owner)):
+        if not (
+            item.track_owner and self._tracker.record_logical_completion(item.owner)
+        ):
             return
 
         owner_invocation: InvocationContext | None = None

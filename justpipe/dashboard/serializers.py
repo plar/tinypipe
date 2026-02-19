@@ -113,10 +113,7 @@ def serialize_stats(runs: list[RunRecord], days: int = 7) -> dict[str, Any]:
         }
 
     # Daily activity
-    daily: dict[str, int] = {}
-    for r in recent:
-        day = r.start_time.strftime("%Y-%m-%d")
-        daily[day] = daily.get(day, 0) + 1
+    daily: Counter[str] = Counter(r.start_time.strftime("%Y-%m-%d") for r in recent)
 
     # Recent errors
     errors = [

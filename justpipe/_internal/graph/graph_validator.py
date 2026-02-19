@@ -118,19 +118,21 @@ class _GraphValidator:
         """Warn when @pipe.map is used with a mutable (non-frozen) dataclass state."""
         import dataclasses
 
-        has_map = any(isinstance(s, _MapStep) for s in self._steps.values())
-        if not has_map or self._state_type is None:
+        if self._state_type is None:
             return
-        if dataclasses.is_dataclass(self._state_type):
-            params = getattr(self._state_type, "__dataclass_params__", None)
-            if params and not params.frozen:
-                warnings.warn(
-                    "Pipeline uses @pipe.map with a mutable state dataclass. "
-                    "Map workers share the same state reference. Consider using "
-                    "a frozen dataclass or synchronizing access.",
-                    PipelineValidationWarning,
-                    stacklevel=4,
-                )
+        if not any(isinstance(s, _MapStep) for s in self._steps.values()):
+            return
+        if not dataclasses.is_dataclass(self._state_type):
+            return
+        params = getattr(self._state_type, "__dataclass_params__", None)
+        if params and not params.frozen:
+            warnings.warn(
+                "Pipeline uses @pipe.map with a mutable state dataclass. "
+                "Map workers share the same state reference. Consider using "
+                "a frozen dataclass or synchronizing access.",
+                PipelineValidationWarning,
+                stacklevel=4,
+            )
 
     def validate(
         self,

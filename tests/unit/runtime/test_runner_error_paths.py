@@ -34,10 +34,6 @@ async def _empty_stream() -> Any:
         yield None
 
 
-def _single_step_config() -> RunnerConfig[Any, Any]:
-    return single_step_config()
-
-
 async def test_event_stream_cancelled_path_marks_log() -> None:
     runner = build_runner(_empty_config())
 
@@ -89,7 +85,7 @@ async def test_shutdown_closing_suppresses_shutdown_events() -> None:
 
 
 async def test_startup_phase_uses_explicit_start_target_and_notifies_start() -> None:
-    runner = build_runner(_single_step_config())
+    runner = build_runner(single_step_config())
     runner._ctx.state = {"value": 1}
     runner._ctx.context = {"ctx": 2}
     runner._events.notify_start = AsyncMock()  # type: ignore[method-assign]
@@ -117,7 +113,7 @@ async def test_startup_phase_uses_explicit_start_target_and_notifies_start() -> 
 
 
 async def test_startup_phase_records_startup_failure() -> None:
-    runner = build_runner(_single_step_config())
+    runner = build_runner(single_step_config())
     runner._ctx.state = {"value": 1}
     runner._ctx.context = None
     runner._events.notify_start = AsyncMock()  # type: ignore[method-assign]

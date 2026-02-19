@@ -36,11 +36,7 @@ def tenacity_retry_middleware(
     func: Callable[..., Any],
     ctx: StepContext,
 ) -> Callable[..., Any]:
-    retries: int | dict[str, Any] = 0
-    if ctx.retries:
-        retries = ctx.retries
-    else:
-        retries = ctx.kwargs.get("retries", 0)
+    retries: int | dict[str, Any] = ctx.retries or ctx.kwargs.get("retries", 0)
 
     if not retries:
         return func

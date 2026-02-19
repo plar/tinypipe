@@ -62,7 +62,9 @@ def api_env(tmp_path: Path) -> tuple[DashboardAPI, SQLiteBackend]:
 
 
 class TestListPipelines:
-    def test_returns_pipelines(self, api_env: tuple[DashboardAPI, SQLiteBackend]) -> None:
+    def test_returns_pipelines(
+        self, api_env: tuple[DashboardAPI, SQLiteBackend]
+    ) -> None:
         api, _ = api_env
         result = api.list_pipelines()
 
@@ -100,7 +102,9 @@ class TestListRuns:
         assert result is not None
         assert len(result) == 2
 
-    def test_filter_by_status(self, api_env: tuple[DashboardAPI, SQLiteBackend]) -> None:
+    def test_filter_by_status(
+        self, api_env: tuple[DashboardAPI, SQLiteBackend]
+    ) -> None:
         api, _ = api_env
         result = api.list_runs("abc123", status="failed")
 

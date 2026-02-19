@@ -38,15 +38,15 @@ class _PipelineASTBuilder:
         startup_names = [h.__name__ for h in (startup_hooks or [])]
         shutdown_names = [h.__name__ for h in (shutdown_hooks or [])]
 
-        # Collect all nodes
-        all_nodes: set[str] = set(steps.keys())
+        # Calculate all targets (nodes that are destinations)
+        all_targets: set[str] = set()
         for targets in topology.values():
-            all_nodes.update(targets)
-
+            all_targets.update(targets)
         for step_obj in steps.values():
-            all_nodes.update(step_obj.get_targets())
+            all_targets.update(step_obj.get_targets())
 
-        # Remove special "Stop" marker if present
+        # Collect all nodes (step definitions + targets)
+        all_nodes = set(steps.keys()) | all_targets
         all_nodes.discard("Stop")
 
         # Identify streaming nodes
@@ -56,13 +56,6 @@ class _PipelineASTBuilder:
             if inspect.isasyncgenfunction(s._original_func)
         }
 
-        # Calculate all targets (nodes that are destinations)
-        all_targets: set[str] = set()
-        for targets in topology.values():
-            all_targets.update(targets)
-        for step_obj in steps.values():
-            all_targets.update(step_obj.get_targets())
-
         # Entry points: nodes that are in topology or steps but not targets
         entry_points = set(topology.keys()) - all_targets
         if not entry_points and topology:
@@ -70,7 +63,6 @@ class _PipelineASTBuilder:
         elif not topology and steps:
             entry_points = set(steps.keys())
 
-        # Terminal nodes: nodes that have no outgoing edges
         map_targets = {
             step_obj.each
             for step_obj in steps.values()
@@ -117,8 +109,6 @@ class _PipelineASTBuilder:
                         sub_pipe._topology,
                     )
 
-            node_metadata: dict[str, Any] = {}
-
             nodes[name] = VisualNode(
                 id=safe_ids[name],
                 name=name,
@@ -128,7 +118,6 @@ class _PipelineASTBuilder:
                 is_isolated=name in isolated_nodes,
                 is_map_target=name in map_targets,
                 barrier_type=step.barrier_type if step else BarrierType.ALL,
-                metadata=node_metadata,
                 sub_graph=sub_graph,
             )
 

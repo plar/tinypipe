@@ -42,12 +42,7 @@ def _resolve_bool_flag(explicit: bool | None, env_var: str) -> bool:
     if raw is None:
         return False
 
-    normalized = raw.strip().lower()
-    if normalized in {"1", "true", "yes", "on"}:
-        return True
-    if normalized in {"0", "false", "no", "off", ""}:
-        return False
-    return False
+    return raw.strip().lower() in {"1", "true", "yes", "on"}
 
 
 class Pipe(Generic[StateT, ContextT]):
@@ -375,7 +370,7 @@ class Pipe(Generic[StateT, ContextT]):
 
     def _get_observers(self) -> list[ObserverProtocol]:
         """Assemble the observer list for a pipeline run."""
-        observers = list(self.registry.observers) if self.registry.observers else []
+        observers = list(self.registry.observers)
 
         if self._persist:
             from justpipe._internal.runtime.persistence import (

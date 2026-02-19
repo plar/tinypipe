@@ -9,7 +9,6 @@ import logging
 import time
 from datetime import datetime, timedelta
 from enum import Enum
-from pathlib import Path
 from typing import Any
 
 from justpipe._internal.shared.utils import resolve_storage_path
@@ -133,9 +132,7 @@ class _AutoPersistenceObserver(Observer):
             return
         try:
             batch = list(self._events)
-            await asyncio.to_thread(
-                self._backend.append_events, self._run_id, batch
-            )
+            await asyncio.to_thread(self._backend.append_events, self._run_id, batch)
             self._flushed_count += len(batch)
             self._events.clear()
         except Exception as exc:
@@ -210,9 +207,7 @@ class _AutoPersistenceObserver(Observer):
                     )
                 await asyncio.to_thread(self._backend.save_run, run, [])
             else:
-                await asyncio.to_thread(
-                    self._backend.save_run, run, self._events
-                )
+                await asyncio.to_thread(self._backend.save_run, run, self._events)
 
             # Write pipeline.json alongside the DB
             self._write_pipeline_json()
@@ -231,7 +226,6 @@ class _AutoPersistenceObserver(Observer):
 
     def _write_pipeline_json(self) -> None:
         """Write pipeline descriptor alongside the storage."""
-        pipeline_json: Path | None = None
         try:
             storage_dir = resolve_storage_path() / self._pipeline_hash
             storage_dir.mkdir(parents=True, exist_ok=True)
@@ -239,4 +233,6 @@ class _AutoPersistenceObserver(Observer):
             if not pipeline_json.exists():
                 pipeline_json.write_text(json.dumps(self._describe_snapshot, indent=2))
         except Exception as exc:
-            logger.warning("Failed to write pipeline.json for %s: %s", pipeline_json or self._pipeline_hash, exc)
+            logger.warning(
+                "Failed to write pipeline.json for %s: %s", self._pipeline_hash, exc
+            )

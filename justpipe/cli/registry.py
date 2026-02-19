@@ -82,14 +82,10 @@ class PipelineRegistry:
         for pipe in pipelines:
             backend = SQLiteBackend(pipe.path)
             runs = backend.list_runs(status=status, limit=limit)
-            for run in runs:
-                all_runs.append(
-                    AnnotatedRun(
-                        run=run,
-                        pipeline_name=pipe.name,
-                        pipeline_hash=pipe.hash,
-                    )
-                )
+            all_runs.extend(
+                AnnotatedRun(run=run, pipeline_name=pipe.name, pipeline_hash=pipe.hash)
+                for run in runs
+            )
 
         # Sort by start_time DESC and apply limit
         all_runs.sort(key=lambda a: a.run.start_time, reverse=True)

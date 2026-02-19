@@ -17,8 +17,6 @@ class DefinitionError(Exception):
 class PipelineValidationWarning(UserWarning):
     """Raised for non-fatal pipeline validation diagnostics."""
 
-    pass
-
 
 class EventType(Enum):
     # Pipeline lifecycle
@@ -137,7 +135,6 @@ class Event:
     # Optional extension bag for cross-cutting metadata.
     # Canonical event content must live in `payload` (not duplicated here).
     meta: dict[str, Any] | None = None
-
 
 
 class ScopedMeta(Protocol):
@@ -358,8 +355,6 @@ class PipelineEndData:
 class Stop:
     """Sentinel to stop pipeline execution in switch routes."""
 
-    pass
-
 
 @dataclass
 class _Next:
@@ -386,8 +381,6 @@ class Suspend:
 @dataclass
 class Retry:
     """Primitive to signal the runner to retry the current step."""
-
-    pass
 
 
 @dataclass
@@ -437,8 +430,6 @@ class HookSpec:
 
 class PipelineCancelled(Exception):
     """Raised when pipeline is cancelled via CancellationToken."""
-
-    pass
 
 
 class CancellationToken:

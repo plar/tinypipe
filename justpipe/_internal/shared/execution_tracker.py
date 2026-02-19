@@ -50,6 +50,6 @@ class _ExecutionTracker:
     def consume_skip(self, owner: str) -> bool:
         """Check if an owner was skipped and remove it from the skip set if it was."""
         if owner in self.skipped_owners:
-            self.skipped_owners.remove(owner)
+            self.skipped_owners.discard(owner)
             return True
         return False

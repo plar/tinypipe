@@ -100,7 +100,11 @@ def create_app(registry: PipelineRegistry, static_dir: Path) -> FastAPI:
     def spa_fallback(path: str) -> FileResponse:
         # Serve specific static files if they exist
         file_path = (static_dir / path).resolve()
-        if path and file_path.is_file() and str(file_path).startswith(str(resolved_static)):
+        if (
+            path
+            and file_path.is_file()
+            and str(file_path).startswith(str(resolved_static))
+        ):
             return FileResponse(str(file_path))
         # SPA fallback
         if index_html.is_file():

@@ -125,9 +125,7 @@ async def test_global_handler_failure_chains_escalated_error(
     step.on_error = MagicMock()
 
     invoker = MagicMock()
-    invoker.execute_handler = AsyncMock(
-        side_effect=[local_error, global_error]
-    )
+    invoker.execute_handler = AsyncMock(side_effect=[local_error, global_error])
     invoker.global_error_handler = MagicMock()
 
     handler = _FailureHandler(

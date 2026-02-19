@@ -4,7 +4,12 @@ from __future__ import annotations
 
 from collections import Counter
 
-from justpipe.cli.formatting import format_duration, format_timestamp, parse_run_meta, resolve_or_exit
+from justpipe.cli.formatting import (
+    format_duration,
+    format_timestamp,
+    parse_run_meta,
+    resolve_or_exit,
+)
 from justpipe.cli.registry import PipelineRegistry
 from justpipe.types import EventType
 

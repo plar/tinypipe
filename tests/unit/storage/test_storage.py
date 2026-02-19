@@ -181,7 +181,9 @@ class TestSQLiteBackend:
         matches = backend.find_runs_by_prefix("run-", limit=2)
         assert len(matches) == 2
 
-    def test_find_runs_by_prefix_rejects_invalid_chars(self, backend: SQLiteBackend) -> None:
+    def test_find_runs_by_prefix_rejects_invalid_chars(
+        self, backend: SQLiteBackend
+    ) -> None:
         backend.save_run(make_run("run-abc"), [])
         assert backend.find_runs_by_prefix("run%") == []
         assert backend.find_runs_by_prefix("run;DROP") == []

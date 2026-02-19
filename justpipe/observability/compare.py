@@ -28,13 +28,6 @@ class RunComparison:
     event_count_diff: int  # run2 - run1
 
 
-def _calculate_duration(run: RunRecord) -> float:
-    """Calculate run duration in seconds."""
-    if run.duration is not None:
-        return run.duration.total_seconds()
-    return 0.0
-
-
 def _build_step_times(events: list[StoredEvent]) -> dict[str, float]:
     """Build a step-name → duration mapping from stored events."""
     step_starts: dict[str, float] = {}
@@ -64,8 +57,8 @@ def compare_runs(
     Data loading is the caller's responsibility.
     """
     # Calculate durations
-    duration1 = _calculate_duration(run1)
-    duration2 = _calculate_duration(run2)
+    duration1 = run1.duration.total_seconds() if run1.duration else 0.0
+    duration2 = run2.duration.total_seconds() if run2.duration else 0.0
     duration_diff = duration2 - duration1
 
     # Check status and pipeline
@@ -77,7 +70,7 @@ def compare_runs(
     step_times2 = _build_step_times(events2)
 
     # Calculate differences
-    all_steps = set(step_times1.keys()) | set(step_times2.keys())
+    all_steps = step_times1.keys() | step_times2.keys()
     step_timing_diff = {}
     for step in all_steps:
         time1 = step_times1.get(step, 0.0)

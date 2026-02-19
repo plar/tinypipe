@@ -14,11 +14,9 @@ class _RegistryValidator:
         self, target: Any, step_name: str = "Unknown"
     ) -> None:
         """Validate that a routing target is a valid name or callable."""
-        if isinstance(target, str):
-            pass
-        elif callable(target):
-            pass
-        elif isinstance(target, list):
+        if isinstance(target, str) or callable(target):
+            return
+        if isinstance(target, list):
             for t in target:
                 self.validate_routing_target_type(t, step_name)
         elif isinstance(target, dict):

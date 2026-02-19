@@ -104,17 +104,16 @@ class _ResolvedOutcome:
 
 
 def _resolve_outcome(log: _ExecutionLog) -> _ResolvedOutcome:
-    errors: list[FailureRecord] = []
-    for failure in log.failures:
-        errors.append(
-            FailureRecord(
-                kind=failure.kind,
-                source=failure.source,
-                reason=failure.reason.value,
-                error=failure.error_message,
-                step=failure.step,
-            )
+    errors: list[FailureRecord] = [
+        FailureRecord(
+            kind=f.kind,
+            source=f.source,
+            reason=f.reason.value,
+            error=f.error_message,
+            step=f.step,
         )
+        for f in log.failures
+    ]
     errors.extend(log.diagnostics)
 
     if log.terminal_signal is not None:
