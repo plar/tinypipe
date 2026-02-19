@@ -487,7 +487,7 @@ requires-dist = [
     { name = "tenacity", marker = "extra == 'retry'", specifier = ">=9.1.2" },
     { name = "uvicorn", extras = ["standard"], marker = "extra == 'dashboard'", specifier = ">=0.20" },
 ]
-provides-extras = ["dashboard", "examples", "observability", "retry"]
+provides-extras = ["dashboard", "examples", "retry"]
 
 [package.metadata.requires-dev]
 dev = [
