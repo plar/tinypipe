@@ -21,6 +21,9 @@ mutants/
 conductor/
 conductor/
 
+# Worktrees
+.worktrees/
+
 # Dashboard built assets
 justpipe/dashboard/static/
 dashboard-ui/node_modules/
