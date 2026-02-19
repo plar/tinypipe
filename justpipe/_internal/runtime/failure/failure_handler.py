@@ -36,6 +36,7 @@ class _FailureHandler:
         context: Any | None = None,
         track_owner: bool = True,
         invocation: InvocationContext | None = None,
+        step_meta: dict[str, Any] | None = None,
     ) -> None:
         """Centralized error handling logic with escalation."""
         step = self._steps.get(name)
@@ -54,10 +55,12 @@ class _FailureHandler:
                     payload=payload,
                     track_owner=track_owner,
                     invocation=invocation,
+                    step_meta=step_meta,
                 )
                 return
             except Exception as new_error:
                 # Local handler failed, escalate to global
+                new_error.__cause__ = error
                 error = new_error
 
         # 2. Try Global Handler
@@ -74,9 +77,11 @@ class _FailureHandler:
                     payload=payload,
                     track_owner=track_owner,
                     invocation=invocation,
+                    step_meta=step_meta,
                 )
                 return
             except Exception as final_error:
+                final_error.__cause__ = error
                 error = final_error
 
         # 3. Default Reporting (Terminal)
@@ -97,6 +102,18 @@ class _FailureHandler:
                 attempt=invocation.attempt if invocation else 1,
                 scope=invocation.scope if invocation else (),
             )
+            # Complete the step without emitting STEP_ERROR.
+            await self._orchestrator.complete_step(
+                name=name,
+                owner=owner,
+                result=None,
+                payload=None,
+                track_owner=track_owner,
+                invocation=invocation,
+                already_terminal=True,
+                step_meta=step_meta,
+            )
+            return
         self._log_error(name, error, state)
         await self._report_error(
             name,
@@ -104,6 +121,7 @@ class _FailureHandler:
             error,
             track_owner=track_owner,
             invocation=invocation,
+            step_meta=step_meta,
         )
 
     async def _report_error(
@@ -113,6 +131,7 @@ class _FailureHandler:
         error: Exception,
         track_owner: bool,
         invocation: InvocationContext | None = None,
+        step_meta: dict[str, Any] | None = None,
     ) -> None:
         await self._orchestrator.fail_step(
             name=name,
@@ -120,6 +139,7 @@ class _FailureHandler:
             error=error,
             track_owner=track_owner,
             invocation=invocation,
+            step_meta=step_meta,
         )
 
     def _log_error(self, name: str, error: Exception, state: Any | None) -> None:

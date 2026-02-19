@@ -117,6 +117,7 @@ class FakeOrchestrator(TaskOrchestrator[Any, Any]):
         track_owner: bool = True,
         invocation: InvocationContext | None = None,
         already_terminal: bool = False,
+        step_meta: dict[str, Any] | None = None,
     ) -> None:
         self.submissions.append(
             StepCompleted(
@@ -127,6 +128,7 @@ class FakeOrchestrator(TaskOrchestrator[Any, Any]):
                 track_owner=track_owner,
                 invocation=invocation,
                 already_terminal=already_terminal,
+                step_meta=step_meta,
             )
         )
 
@@ -137,6 +139,7 @@ class FakeOrchestrator(TaskOrchestrator[Any, Any]):
         error: Exception,
         track_owner: bool = True,
         invocation: InvocationContext | None = None,
+        step_meta: dict[str, Any] | None = None,
     ) -> None:
         await self.emit(
             EventType.STEP_ERROR,
@@ -154,8 +157,8 @@ class FakeOrchestrator(TaskOrchestrator[Any, Any]):
             scope=invocation.scope if invocation else (),
         )
         await self.complete_step(
-            owner,
             name,
+            owner,
             None,
             track_owner=track_owner,
             invocation=invocation,

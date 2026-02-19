@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
+from justpipe._internal.shared.utils import format_duration
 from justpipe.types import PipelineTerminalStatus
 
 if TYPE_CHECKING:
@@ -12,17 +14,20 @@ if TYPE_CHECKING:
     from justpipe.storage.sqlite import SQLiteBackend
 
 
-def format_duration(seconds: float | None) -> str:
-    """Format duration for display."""
-    if seconds is None:
-        return "-"
-    if seconds < 1:
-        return f"{seconds * 1000:.0f}ms"
-    if seconds < 60:
-        return f"{seconds:.1f}s"
-    if seconds < 3600:
-        return f"{seconds / 60:.1f}m"
-    return f"{seconds / 3600:.1f}h"
+__all__ = ["format_duration"]  # re-exported from _internal.shared.utils
+
+
+def parse_run_meta(run_meta: str | None) -> Any:
+    """Parse run_meta JSON string from a RunRecord.
+
+    Returns parsed dict on success, raw string on decode failure, or None.
+    """
+    if not run_meta:
+        return None
+    try:
+        return json.loads(run_meta)
+    except (json.JSONDecodeError, AttributeError):
+        return run_meta
 
 
 def format_timestamp(dt: datetime) -> str:

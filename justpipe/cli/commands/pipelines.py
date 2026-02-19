@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from justpipe.cli.formatting import format_timestamp
 from justpipe.cli.registry import PipelineRegistry
+from justpipe.storage.interface import MAX_QUERY_LIMIT
 from justpipe.types import PipelineTerminalStatus
 
 
@@ -29,7 +30,7 @@ def pipelines_command(registry: PipelineRegistry) -> None:
         from justpipe.storage.sqlite import SQLiteBackend
 
         backend = SQLiteBackend(pipe.path)
-        runs = backend.list_runs(limit=10000)
+        runs = backend.list_runs(limit=MAX_QUERY_LIMIT)
         total = len(runs)
         last_run_str = "-"
         success_rate_str = "-"

@@ -11,7 +11,6 @@ async def _noop(**_: Any) -> None:
     return None
 
 
-@pytest.mark.asyncio
 async def test_execute_rejects_empty_step_name() -> None:
     invoker: _StepInvoker[Any, Any] = _StepInvoker(steps={}, injection_metadata={})
 
@@ -19,15 +18,6 @@ async def test_execute_rejects_empty_step_name() -> None:
         await invoker.execute("", FakeOrchestrator(), state=None, context=None)
 
 
-@pytest.mark.asyncio
-async def test_execute_rejects_none_orchestrator() -> None:
-    invoker: _StepInvoker[Any, Any] = _StepInvoker(steps={}, injection_metadata={})
-
-    with pytest.raises(ValueError, match="Orchestrator cannot be None"):
-        await invoker.execute("x", None, state=None, context=None)  # type: ignore[arg-type]
-
-
-@pytest.mark.asyncio
 async def test_execute_rejects_non_dict_payload() -> None:
     invoker: _StepInvoker[Any, Any] = _StepInvoker(steps={}, injection_metadata={})
 
@@ -41,31 +31,26 @@ async def test_execute_rejects_non_dict_payload() -> None:
         )
 
 
-@pytest.mark.asyncio
-async def test_execute_unknown_step_reports_suggestion() -> None:
+@pytest.mark.parametrize(
+    "bad_name, expected_pattern",
+    [
+        ("alpah", r"Did you mean 'alpha'\?"),
+        ("zzzz", r"Did you forget to decorate with @pipe\.step\(\)\?"),
+    ],
+    ids=["close_match_suggestion", "no_match_fallback"],
+)
+async def test_execute_unknown_step_error_message(
+    bad_name: str, expected_pattern: str
+) -> None:
     step = _StandardStep(name="alpha", func=_noop)
     invoker: _StepInvoker[Any, Any] = _StepInvoker(
         steps={"alpha": step}, injection_metadata={}
     )
 
-    with pytest.raises(ValueError, match=r"Did you mean 'alpha'\?"):
-        await invoker.execute("alpah", FakeOrchestrator(), state=None, context=None)
+    with pytest.raises(ValueError, match=expected_pattern):
+        await invoker.execute(bad_name, FakeOrchestrator(), state=None, context=None)
 
 
-@pytest.mark.asyncio
-async def test_execute_unknown_step_reports_fallback_hint() -> None:
-    step = _StandardStep(name="alpha", func=_noop)
-    invoker: _StepInvoker[Any, Any] = _StepInvoker(
-        steps={"alpha": step}, injection_metadata={}
-    )
-
-    with pytest.raises(
-        ValueError, match=r"Did you forget to decorate with @pipe.step\(\)\?"
-    ):
-        await invoker.execute("zzzz", FakeOrchestrator(), state=None, context=None)
-
-
-@pytest.mark.asyncio
 async def test_execute_handler_global_requires_hookspec() -> None:
     invoker: _StepInvoker[Any, Any] = _StepInvoker(steps={}, injection_metadata={})
 

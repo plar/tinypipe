@@ -139,9 +139,6 @@ class Event:
     meta: dict[str, Any] | None = None
 
 
-# Event schema version (for observability consumers)
-EVENT_SCHEMA_VERSION = "1.0"
-
 
 class ScopedMeta(Protocol):
     """Writable metadata scope. Used for both step and run.
@@ -355,7 +352,6 @@ class PipelineEndData:
     failed_step: str | None = None
     errors: list[FailureRecord] = field(default_factory=list)
     metrics: RuntimeMetrics | None = None
-    user_meta: dict[str, Any] | None = None
 
 
 @dataclass(frozen=True)

@@ -1,10 +1,8 @@
-import pytest
 from typing import Any
 from unittest.mock import Mock
 from justpipe import Pipe, EventType
 
 
-@pytest.mark.asyncio
 async def test_startup_handlers(state: Any, context: Any) -> None:
     pipe: Pipe[Any, Any] = Pipe()
     log: list[str] = []
@@ -27,7 +25,6 @@ async def test_startup_handlers(state: Any, context: Any) -> None:
     assert log == ["startup", "shutdown"]
 
 
-@pytest.mark.asyncio
 async def test_lifecycle_injection(state: Any, context: Any) -> None:
     pipe: Pipe[Any, Any] = Pipe(Any, Any)
     seen: list[str] = []
@@ -54,7 +51,6 @@ async def test_lifecycle_injection(state: Any, context: Any) -> None:
     assert seen == ["startup", "shutdown"]
 
 
-@pytest.mark.asyncio
 async def test_shutdown_called_once_on_startup_failure() -> None:
     pipe: Pipe[Any, Any] = Pipe(name="test_pipe")
 
@@ -81,7 +77,6 @@ async def test_shutdown_called_once_on_startup_failure() -> None:
     assert shutdown_mock.call_count == 1
 
 
-@pytest.mark.asyncio
 async def test_shutdown_errors_are_yielded_on_startup_failure() -> None:
     pipe: Pipe[Any, Any] = Pipe(name="test_pipe")
 
@@ -103,40 +98,7 @@ async def test_shutdown_errors_are_yielded_on_startup_failure() -> None:
     assert any(e.type == EventType.STEP_ERROR and e.stage == "shutdown" for e in events)
 
 
-@pytest.mark.asyncio
-async def test_startup_exception_runs_shutdown() -> None:
-    """If startup hook fails, shutdown hooks should still run."""
-    shutdown_called = False
 
-    pipe: Pipe[Any, Any] = Pipe()
-
-    @pipe.on_startup
-    async def bad_startup(ctx: Any) -> None:
-        raise ValueError("Startup failed!")
-
-    @pipe.on_shutdown
-    async def cleanup(ctx: Any) -> None:
-        nonlocal shutdown_called
-        shutdown_called = True
-
-    @pipe.step
-    async def dummy(s: Any) -> None:
-        pass
-
-    events = [e async for e in pipe.run({})]
-
-    # Should have startup error
-    error_events = [e for e in events if e.type == EventType.STEP_ERROR]
-    assert any("Startup failed" in str(e.payload) for e in error_events)
-
-    # Shutdown should have been called
-    assert shutdown_called
-
-    # Should end with FINISH
-    assert events[-1].type == EventType.FINISH
-
-
-@pytest.mark.asyncio
 async def test_shutdown_exception_yields_error() -> None:
     """Shutdown hook exception should yield ERROR event."""
     pipe: Pipe[Any, Any] = Pipe()
@@ -159,7 +121,6 @@ async def test_shutdown_exception_yields_error() -> None:
     assert events[-1].type == EventType.FINISH
 
 
-@pytest.mark.asyncio
 async def test_multiple_startup_hooks_partial_failure() -> None:
     """If second startup hook fails, first ran and shutdown still runs."""
     hooks_called = []
@@ -191,7 +152,6 @@ async def test_multiple_startup_hooks_partial_failure() -> None:
     assert events[-1].type == EventType.FINISH
 
 
-@pytest.mark.asyncio
 async def test_observers_notified_of_startup_failure() -> None:
     """Test that observers are correctly notified when startup fails.
 
@@ -249,7 +209,6 @@ async def test_observers_notified_of_startup_failure() -> None:
     assert not observer_end_called, "Observer should NOT be notified of successful end"
 
 
-@pytest.mark.asyncio
 async def test_shutdown_runs_when_no_steps_registered() -> None:
     """Test that shutdown hooks run even when there are no steps registered.
 
@@ -279,7 +238,6 @@ async def test_shutdown_runs_when_no_steps_registered() -> None:
     assert any(e.type == EventType.STEP_ERROR for e in events)
 
 
-@pytest.mark.asyncio
 async def test_barrier_cleanup_when_startup_fails() -> None:
     """Test that barrier task cleanup doesn't crash when execution never started.
 

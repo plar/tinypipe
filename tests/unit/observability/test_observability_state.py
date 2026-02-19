@@ -1,7 +1,6 @@
 from dataclasses import dataclass
 from typing import Any
 
-import pytest
 
 from justpipe.observability import ObserverMeta, StateDiffTracker
 from justpipe.types import Event, EventType
@@ -16,7 +15,6 @@ class ObjState:
     name: str
 
 
-@pytest.mark.asyncio
 async def test_snapshots_captured_for_start_step_and_end() -> None:
     tracker = StateDiffTracker()
     state: dict[str, Any] = {"count": 1}

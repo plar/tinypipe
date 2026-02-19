@@ -38,7 +38,6 @@ def _find_runs_db(storage_dir: Path) -> Path | None:
     return None
 
 
-@pytest.mark.asyncio
 async def test_persist_creates_db(storage_dir: Path) -> None:
     """Pipeline with persist=True creates runs.db."""
     pipe: Pipe[SimpleState, Any] = Pipe(SimpleState, name="test_persist", persist=True)
@@ -59,7 +58,6 @@ async def test_persist_creates_db(storage_dir: Path) -> None:
     assert runs[0].status == PipelineTerminalStatus.SUCCESS
 
 
-@pytest.mark.asyncio
 async def test_persist_false_no_files(storage_dir: Path) -> None:
     """Pipeline with persist=False creates no files."""
     pipe: Pipe[SimpleState, Any] = Pipe(
@@ -76,7 +74,6 @@ async def test_persist_false_no_files(storage_dir: Path) -> None:
     assert _find_runs_db(storage_dir) is None
 
 
-@pytest.mark.asyncio
 async def test_persist_stores_events(storage_dir: Path) -> None:
     """Persisted runs include all events."""
     pipe: Pipe[SimpleState, Any] = Pipe(SimpleState, name="test_events", persist=True)
@@ -110,7 +107,6 @@ async def test_persist_stores_events(storage_dir: Path) -> None:
     assert "step_end" in event_types
 
 
-@pytest.mark.asyncio
 async def test_persist_with_meta(storage_dir: Path) -> None:
     """Persisted runs include user meta snapshot."""
     pipe: Pipe[SimpleState, MetaContext] = Pipe(
@@ -135,14 +131,13 @@ async def test_persist_with_meta(storage_dir: Path) -> None:
     backend = SQLiteBackend(db_path)
     runs = backend.list_runs()
     assert len(runs) == 1
-    assert runs[0].user_meta is not None
+    assert runs[0].run_meta is not None
 
-    meta = json.loads(runs[0].user_meta)
-    assert meta["run"]["data"]["label"] == "test-run"
-    assert "integration" in meta["run"]["tags"]
+    meta = json.loads(runs[0].run_meta)
+    assert meta["data"]["label"] == "test-run"
+    assert "integration" in meta["tags"]
 
 
-@pytest.mark.asyncio
 async def test_persist_without_meta(storage_dir: Path) -> None:
     """Pipeline without Meta field on context persists core events."""
     pipe: Pipe[SimpleState, Any] = Pipe(SimpleState, name="test_no_meta", persist=True)
@@ -160,11 +155,10 @@ async def test_persist_without_meta(storage_dir: Path) -> None:
     backend = SQLiteBackend(db_path)
     runs = backend.list_runs()
     assert len(runs) == 1
-    # No user_meta when context doesn't have Meta field
-    assert runs[0].user_meta is None
+    # No run_meta when context doesn't have Meta field
+    assert runs[0].run_meta is None
 
 
-@pytest.mark.asyncio
 async def test_same_pipeline_twice_same_db(storage_dir: Path) -> None:
     """Running the same pipeline twice stores both runs in the same DB."""
     pipe: Pipe[SimpleState, Any] = Pipe(SimpleState, name="test_same", persist=True)
@@ -186,7 +180,6 @@ async def test_same_pipeline_twice_same_db(storage_dir: Path) -> None:
     assert len(runs) == 2
 
 
-@pytest.mark.asyncio
 async def test_different_topology_different_hash(storage_dir: Path) -> None:
     """Pipelines with different topologies get different storage directories."""
     # Pipeline A: one step
@@ -217,7 +210,6 @@ async def test_different_topology_different_hash(storage_dir: Path) -> None:
     assert len(db_files) == 2
 
 
-@pytest.mark.asyncio
 async def test_persist_writes_pipeline_json(storage_dir: Path) -> None:
     """Persistence writes pipeline.json alongside runs.db."""
     pipe: Pipe[SimpleState, Any] = Pipe(
@@ -238,7 +230,6 @@ async def test_persist_writes_pipeline_json(storage_dir: Path) -> None:
     assert data["name"] == "test_pipeline_json"
 
 
-@pytest.mark.asyncio
 async def test_persist_error_run(storage_dir: Path) -> None:
     """Pipeline errors are recorded in the persisted run."""
     pipe: Pipe[SimpleState, Any] = Pipe(SimpleState, name="test_error", persist=True)

@@ -215,7 +215,9 @@ class EventLogger(Observer):
         if self.level > LogLevel.INFO:
             return
 
-        timestamp = (self.start_time or 0.0) + duration_s
+        import time as _time
+
+        timestamp = self.start_time + duration_s if self.start_time is not None else _time.time()
         message = self._colorize(f"Pipeline completed in {duration_s:.2f}s", "GREEN")
         self._emit(
             LogRecord(
@@ -232,7 +234,9 @@ class EventLogger(Observer):
         self, state: Any, context: Any, meta: ObserverMeta, error: Exception
     ) -> None:
         _ = (state, context, meta)
-        timestamp = self.start_time or 0.0
+        import time as _time
+
+        timestamp = _time.time()
         message = self._colorize(f"Pipeline failed: {error}", "RED")
         self._emit(
             LogRecord(

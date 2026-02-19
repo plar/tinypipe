@@ -105,6 +105,7 @@ class StepCompletionPort(Protocol):
         track_owner: bool = True,
         invocation: "InvocationContext | None" = None,
         already_terminal: bool = False,
+        step_meta: dict[str, Any] | None = None,
     ) -> None: ...
 
 
@@ -119,6 +120,7 @@ class StepFailurePort(Protocol):
         error: Exception,
         track_owner: bool = True,
         invocation: "InvocationContext | None" = None,
+        step_meta: dict[str, Any] | None = None,
     ) -> None: ...
 
 
@@ -167,6 +169,7 @@ class CoordinatorOrchestrator(
         state: Any,
         context: Any,
         invocation: "InvocationContext | None" = None,
+        step_meta: dict[str, Any] | None = None,
     ) -> None: ...
 
 

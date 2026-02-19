@@ -54,3 +54,21 @@ class TestBuildStepInfo:
     def test_empty_events(self) -> None:
         viz = TimelineVisualizer()
         assert viz._build_step_info() == []
+
+    def test_bottleneck_marker_shown_for_long_step_name(self) -> None:
+        """Bottleneck marker must match against original name, not truncated."""
+        viz = TimelineVisualizer()
+        viz.pipeline_start = 100.0
+        viz.pipeline_end = 110.0
+        viz.pipeline_name = "test"
+
+        long_name = "process_large_batch_items_v2"  # 27 chars > 25
+        assert len(long_name) > 25
+
+        viz.process_event(EventType.STEP_START, long_name, 100.0)
+        viz.process_event(EventType.STEP_END, long_name, 110.0)  # 10s — bottleneck
+        viz.process_event(EventType.STEP_START, "fast", 100.0)
+        viz.process_event(EventType.STEP_END, "fast", 101.0)  # 1s
+
+        output = viz.render_ascii()
+        assert "Bottleneck" in output

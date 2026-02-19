@@ -1,11 +1,9 @@
 import asyncio
-import pytest
 from typing import Any
 
 from justpipe import Pipe, EventType
 
 
-@pytest.mark.asyncio
 async def test_client_aclose_sets_client_closed_status() -> None:
     pipe: Pipe[dict[str, Any], Any] = Pipe(state_type=dict)
 

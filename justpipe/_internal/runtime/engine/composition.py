@@ -15,11 +15,12 @@ from justpipe._internal.graph.execution_plan import (
 )
 from justpipe._internal.runtime.orchestration.runtime_kernel import _RuntimeKernel
 from justpipe._internal.shared.execution_tracker import _ExecutionTracker
-from justpipe._internal.types import HookSpec, InjectionMetadataMap
 from justpipe.types import (
     CancellationToken,
     Event,
     FailureClassificationConfig,
+    HookSpec,
+    InjectionMetadataMap,
 )
 
 if TYPE_CHECKING:

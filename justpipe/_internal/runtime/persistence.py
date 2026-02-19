@@ -3,14 +3,16 @@
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import json
 import logging
-import os
 import time
 from datetime import datetime, timedelta
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
+from justpipe._internal.shared.utils import resolve_storage_path
 from justpipe.observability import Observer, ObserverMeta
 from justpipe.storage.interface import RunRecord, StorageBackend
 from justpipe.types import Event, EventType, PipelineTerminalStatus
@@ -27,12 +29,10 @@ def _serialize_event(event: Event) -> str:
     - Non-serializable payloads → str() fallback
     """
 
-    import dataclasses
-
     def _default(obj: Any) -> Any:
         if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
             return dataclasses.asdict(obj)
-        if hasattr(obj, "value"):
+        if isinstance(obj, Enum):
             return obj.value
         return str(obj)
 
@@ -65,16 +65,12 @@ def _serialize_event(event: Event) -> str:
     return json.dumps(data, default=_default)
 
 
-def _resolve_storage_path() -> Path:
-    """Resolve the base storage directory from env or default."""
-    raw = os.getenv("JUSTPIPE_STORAGE_PATH")
-    if raw:
-        return Path(raw).expanduser()
-    return Path.home() / ".justpipe"
-
-
 class _AutoPersistenceObserver(Observer):
     """Observer that buffers events in memory and flushes to a StorageBackend at FINISH.
+
+    When *flush_interval* is set, events are flushed incrementally via
+    ``backend.append_events()`` every *flush_interval* events to bound
+    memory usage for long-running pipelines.
 
     Pipeline execution NEVER fails due to persistence errors.
     """
@@ -84,13 +80,16 @@ class _AutoPersistenceObserver(Observer):
         backend: StorageBackend,
         pipeline_hash: str,
         describe_snapshot: dict[str, Any],
+        flush_interval: int | None = None,
     ) -> None:
         self._backend = backend
         self._pipeline_hash = pipeline_hash
         self._describe_snapshot = describe_snapshot
+        self._flush_interval = flush_interval
 
         # Per-run state
         self._events: list[str] = []
+        self._flushed_count: int = 0
         self._run_id: str | None = None
         self._start_time: float = 0
 
@@ -98,6 +97,7 @@ class _AutoPersistenceObserver(Observer):
         self, state: Any, context: Any, meta: ObserverMeta
     ) -> None:
         self._events = []
+        self._flushed_count = 0
         self._run_id = meta.run_id
         self._start_time = time.time()
 
@@ -108,6 +108,14 @@ class _AutoPersistenceObserver(Observer):
             self._events.append(_serialize_event(event))
         except Exception as exc:
             logger.warning("Failed to serialize event: %s", exc)
+            return
+
+        if (
+            self._flush_interval
+            and self._run_id
+            and len(self._events) >= self._flush_interval
+        ):
+            await self._flush_intermediate()
 
     async def on_pipeline_end(
         self, state: Any, context: Any, meta: ObserverMeta, duration_s: float
@@ -118,6 +126,22 @@ class _AutoPersistenceObserver(Observer):
         self, state: Any, context: Any, meta: ObserverMeta, error: Exception
     ) -> None:
         await self._flush(error=error)
+
+    async def _flush_intermediate(self) -> None:
+        """Flush buffered events incrementally without finalizing the run."""
+        if not self._run_id or not self._events:
+            return
+        try:
+            batch = list(self._events)
+            await asyncio.to_thread(
+                self._backend.append_events, self._run_id, batch
+            )
+            self._flushed_count += len(batch)
+            self._events.clear()
+        except Exception as exc:
+            logger.warning(
+                "Intermediate flush failed for run %s: %s", self._run_id, exc
+            )
 
     async def _flush(
         self,
@@ -133,13 +157,13 @@ class _AutoPersistenceObserver(Observer):
             status = PipelineTerminalStatus.SUCCESS
             error_message: str | None = None
             error_step: str | None = None
-            user_meta: str | None = None
+            run_meta: str | None = None
             end_time = time.time()
             actual_duration = duration_s or (end_time - self._start_time)
 
-            # Parse last event (FINISH) for terminal data
-            for serialized in reversed(self._events):
-                parsed = json.loads(serialized)
+            # The FINISH event is always the last event in the buffer.
+            if self._events:
+                parsed = json.loads(self._events[-1])
                 if parsed.get("type") == EventType.FINISH.value and isinstance(
                     parsed.get("payload"), dict
                 ):
@@ -152,13 +176,12 @@ class _AutoPersistenceObserver(Observer):
                             pass
                     error_message = payload.get("error")
                     error_step = payload.get("failed_step")
-                    raw_meta = payload.get("user_meta")
+                    raw_meta = parsed.get("meta")
                     if raw_meta:
-                        user_meta = json.dumps(raw_meta)
+                        run_meta = json.dumps(raw_meta)
                     dur = payload.get("duration_s")
                     if dur is not None:
                         actual_duration = dur
-                    break
 
             if error and status == PipelineTerminalStatus.SUCCESS:
                 status = PipelineTerminalStatus.FAILED
@@ -172,10 +195,24 @@ class _AutoPersistenceObserver(Observer):
                 status=status,
                 error_message=error_message,
                 error_step=error_step,
-                user_meta=user_meta,
+                run_meta=run_meta,
             )
 
-            await asyncio.to_thread(self._backend.save_run, run, self._events)
+            if self._flushed_count > 0:
+                # Some events were already flushed incrementally via
+                # append_events. Flush remaining, then save_run with
+                # an empty list (all events already in DB).
+                if self._events:
+                    await asyncio.to_thread(
+                        self._backend.append_events,
+                        self._run_id,
+                        self._events,
+                    )
+                await asyncio.to_thread(self._backend.save_run, run, [])
+            else:
+                await asyncio.to_thread(
+                    self._backend.save_run, run, self._events
+                )
 
             # Write pipeline.json alongside the DB
             self._write_pipeline_json()
@@ -184,20 +221,22 @@ class _AutoPersistenceObserver(Observer):
             logger.warning(
                 "Failed to persist run %s (%d events lost): %s",
                 self._run_id,
-                len(self._events),
+                len(self._events) + self._flushed_count,
                 exc,
             )
         finally:
             self._events = []
+            self._flushed_count = 0
             self._run_id = None
 
     def _write_pipeline_json(self) -> None:
         """Write pipeline descriptor alongside the storage."""
+        pipeline_json: Path | None = None
         try:
-            storage_dir = _resolve_storage_path() / self._pipeline_hash
+            storage_dir = resolve_storage_path() / self._pipeline_hash
             storage_dir.mkdir(parents=True, exist_ok=True)
             pipeline_json = storage_dir / "pipeline.json"
             if not pipeline_json.exists():
                 pipeline_json.write_text(json.dumps(self._describe_snapshot, indent=2))
         except Exception as exc:
-            logger.warning("Failed to write %s: %s", pipeline_json, exc)
+            logger.warning("Failed to write pipeline.json for %s: %s", pipeline_json or self._pipeline_hash, exc)

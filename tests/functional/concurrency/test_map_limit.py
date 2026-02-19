@@ -10,7 +10,6 @@ pytestmark = pytest.mark.slow
 _DEFAULT_LIMIT = _MapStep.DEFAULT_MAX_ITEMS
 
 
-@pytest.mark.asyncio
 async def test_map_async_gen_limit_default() -> None:
     pipe: Pipe[dict[str, Any], Any] = Pipe(dict)
 
@@ -34,7 +33,6 @@ async def test_map_async_gen_limit_default() -> None:
     assert f"exceeded maximum of {_DEFAULT_LIMIT} items" in str(error_event.payload)
 
 
-@pytest.mark.asyncio
 async def test_map_async_gen_limit_configurable() -> None:
     custom_limit = 10
     pipe: Pipe[dict[str, Any], Any] = Pipe(dict, max_map_items=custom_limit)
@@ -55,7 +53,6 @@ async def test_map_async_gen_limit_configurable() -> None:
     assert f"exceeded maximum of {custom_limit} items" in str(error_event.payload)
 
 
-@pytest.mark.asyncio
 async def test_map_async_gen_limit_within_bounds() -> None:
     pipe: Pipe[dict[str, Any], Any] = Pipe(dict, max_map_items=50)
 

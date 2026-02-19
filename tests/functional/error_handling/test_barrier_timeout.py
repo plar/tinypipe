@@ -8,7 +8,6 @@ import pytest
 from justpipe import Pipe, EventType
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("with_downstream",),
     [(False,), (True,)],
@@ -60,7 +59,6 @@ async def test_barrier_timeout_success_paths(with_downstream: bool) -> None:
     )
 
 
-@pytest.mark.asyncio
 async def test_barrier_timeout_failure() -> None:
     pipe: Pipe[dict[str, Any], None] = Pipe(allow_multi_root=True)
     # Keep one worker blocked until the join step times out.
@@ -95,7 +93,6 @@ async def test_barrier_timeout_failure() -> None:
     assert state.get("done") is None
 
 
-@pytest.mark.asyncio
 async def test_barrier_timeout_does_not_skip_other_targets() -> None:
     pipe: Pipe[dict[str, Any], None] = Pipe(allow_multi_root=True)
     # Block only the barrier path; sibling targets should still execute.

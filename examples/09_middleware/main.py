@@ -2,7 +2,8 @@ import asyncio
 import time
 from pathlib import Path
 from typing import Any, Callable
-from justpipe import Pipe, EventType, StepContext
+from justpipe import Pipe, EventType
+from justpipe.types import StepContext
 from examples.utils import save_graph
 
 try:

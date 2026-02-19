@@ -5,8 +5,7 @@ from typing import Any
 import pytest
 
 from justpipe._internal.definition.type_resolver import _TypeResolver
-from justpipe._internal.types import InjectionSource
-from justpipe.types import DefinitionError
+from justpipe.types import DefinitionError, InjectionSource
 
 
 class MockState:

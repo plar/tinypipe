@@ -1,3 +1,4 @@
+import time
 from io import StringIO
 
 import pytest
@@ -46,7 +47,6 @@ def test_format_event_handles_dict_payload_and_ignores_trace_id() -> None:
     assert "trace_id" not in rendered
 
 
-@pytest.mark.asyncio
 async def test_on_event_emits_structured_record_to_sink() -> None:
     records: list[LogRecord] = []
     logger = EventLogger(level="INFO", sink=records.append, use_colors=False)
@@ -60,7 +60,6 @@ async def test_on_event_emits_structured_record_to_sink() -> None:
     assert "START" in records[0].message
 
 
-@pytest.mark.asyncio
 async def test_on_pipeline_end_and_error_emit_messages() -> None:
     records: list[LogRecord] = []
     logger = EventLogger(level="INFO", sink=records.append, use_colors=False)
@@ -84,7 +83,6 @@ def test_colorize_passthrough_when_colors_disabled() -> None:
     assert logger._colorize("hello", "GREEN") == "hello"
 
 
-@pytest.mark.asyncio
 async def test_stream_sink_writes_rendered_message() -> None:
     stream = StringIO()
     logger = EventLogger(
@@ -101,3 +99,38 @@ async def test_stream_sink_writes_rendered_message() -> None:
     )
 
     assert "START" in stream.getvalue()
+
+
+async def test_error_timestamp_is_current_not_start() -> None:
+    """on_pipeline_error should log at current time, not pipeline start."""
+    records: list[LogRecord] = []
+    logger = EventLogger(level="INFO", sink=records.append)
+    meta = ObserverMeta(pipe_name="test", run_id="r1")
+
+    # Simulate a pipeline that started 5 seconds ago
+    logger.start_time = time.time() - 5.0
+
+    await logger.on_pipeline_error(None, None, meta, RuntimeError("boom"))
+
+    assert len(records) == 1
+    record = records[0]
+    # The error timestamp should be close to now, not to start_time
+    assert abs(record.timestamp - time.time()) < 2.0
+    # The relative time should show ~5s elapsed, not 0s
+    assert "05" in record.relative_time  # contains "05" for ~5 seconds
+
+
+async def test_end_timestamp_not_corrupted_when_start_none() -> None:
+    """on_pipeline_end with start_time=None must not corrupt start_time."""
+    records: list[LogRecord] = []
+    logger = EventLogger(level="INFO", sink=records.append)
+    meta = ObserverMeta(pipe_name="test", run_id="r1")
+
+    assert logger.start_time is None
+
+    await logger.on_pipeline_end(None, None, meta, duration_s=0.5)
+
+    assert len(records) == 1
+    # start_time should be an epoch timestamp if set, not a relative value
+    if logger.start_time is not None:
+        assert logger.start_time > 1_000_000_000  # epoch sanity check

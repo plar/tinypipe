@@ -1,12 +1,11 @@
 from typing import Any
 
 import asyncio
-import pytest
 
-from justpipe import Pipe, BarrierType
+from justpipe import Pipe
+from justpipe.types import BarrierType
 
 
-@pytest.mark.asyncio
 async def test_barrier_any_executes_on_first_parent() -> None:
     """Test that a step with BarrierType.ANY executes as soon as the first parent finishes."""
     pipe: Pipe[dict[str, Any], None] = Pipe(allow_multi_root=True)
@@ -42,7 +41,6 @@ async def test_barrier_any_executes_on_first_parent() -> None:
     assert state.get("slow_done") is True
 
 
-@pytest.mark.asyncio
 async def test_barrier_any_ignores_subsequent_parents() -> None:
     """Test that a step with BarrierType.ANY does not re-execute when subsequent parents finish."""
     pipe: Pipe[dict[str, Any], None] = Pipe(allow_multi_root=True)
@@ -75,7 +73,6 @@ async def test_barrier_any_ignores_subsequent_parents() -> None:
     assert state.get("combine_executions") == 1
 
 
-@pytest.mark.asyncio
 async def test_barrier_all_waits_for_everyone() -> None:
     """Test that the default BarrierType.ALL waits for all parents."""
     pipe: Pipe[dict[str, Any], None] = Pipe(allow_multi_root=True)
@@ -105,7 +102,6 @@ async def test_barrier_all_waits_for_everyone() -> None:
     assert "error" not in state
 
 
-@pytest.mark.asyncio
 async def test_barrier_any_with_map() -> None:
     """Test that @pipe.map respects BarrierType.ANY."""
     pipe: Pipe[dict[str, Any], None] = Pipe(allow_multi_root=True)
@@ -138,7 +134,6 @@ async def test_barrier_any_with_map() -> None:
     assert len(state.get("items", [])) == 3
 
 
-@pytest.mark.asyncio
 async def test_barrier_any_with_switch() -> None:
     """Test that @pipe.switch respects BarrierType.ANY."""
     pipe: Pipe[dict[str, Any], None] = Pipe(allow_multi_root=True)
@@ -168,7 +163,6 @@ async def test_barrier_any_with_switch() -> None:
     assert state.get("reached") is True
 
 
-@pytest.mark.asyncio
 async def test_barrier_any_with_sub() -> None:
     """Test that @pipe.sub respects BarrierType.ANY."""
     sub_pipe: Pipe[dict[str, Any], None] = Pipe(allow_multi_root=True)
@@ -201,7 +195,6 @@ async def test_barrier_any_with_sub() -> None:
     assert state.get("sub_done") is True
 
 
-@pytest.mark.asyncio
 async def test_barrier_any_resilience() -> None:
     """
     Test that BarrierType.ANY proceeds if one parent is skipped or fails (handled),
@@ -232,7 +225,6 @@ async def test_barrier_any_resilience() -> None:
     assert state.get("combine_done") is True
 
 
-@pytest.mark.asyncio
 async def test_mixed_barriers() -> None:
     """Test chaining an ANY barrier step into an ALL barrier step."""
     pipe: Pipe[dict[str, Any], None] = Pipe(allow_multi_root=True)

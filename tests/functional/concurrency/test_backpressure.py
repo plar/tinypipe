@@ -18,7 +18,6 @@ async def _wait_until(
         await asyncio.sleep(interval)
 
 
-@pytest.mark.asyncio
 async def test_backpressure_slow_consumer() -> None:
     # Pipe with a very small queue (max 1 item)
     pipe: Pipe[dict[str, Any], None] = Pipe(queue_size=1)
@@ -78,7 +77,6 @@ async def test_backpressure_slow_consumer() -> None:
     assert remaining == ["token_0", "token_1", "token_2", "token_3", "token_4"]
 
 
-@pytest.mark.asyncio
 async def test_backpressure_with_next_steps() -> None:
     # Test that backpressure also works when multiple steps are producing events
     pipe: Pipe[dict[str, Any], None] = Pipe(queue_size=1)
@@ -121,7 +119,6 @@ async def test_backpressure_with_next_steps() -> None:
     assert ev.payload == "token_b"
 
 
-@pytest.mark.asyncio
 async def test_backpressure_iterator_aclose_has_no_generator_exit_leak() -> None:
     pipe: Pipe[dict[str, Any], None] = Pipe(queue_size=1)
 

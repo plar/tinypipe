@@ -5,11 +5,11 @@ Monitor, debug, and analyze pipeline execution with justpipe's comprehensive obs
 ## Key Concepts
 
 1. **Real-time Logging**: EventLogger for colored console output with configurable log levels
-2. **Persistent Storage**: SQLite and in-memory storage for persisting pipeline runs
-3. **Performance Metrics**: MetricsCollector for tracking duration and identifying bottlenecks
+2. **Persistent Storage**: `persist=True` writes runs to SQLite automatically
+3. **Performance Metrics**: Built-in `RuntimeMetrics` on the FINISH event for step latencies, queue depth, and task counts
 4. **Timeline Visualization**: ASCII, HTML, and Mermaid timeline diagrams
 5. **CLI Tools**: Query and analyze runs from the command line
-6. **Replay & Compare**: Reproduce runs and compare performance differences
+6. **Compare**: Compare performance differences between runs
 
 ## Quick Start
 
@@ -24,9 +24,9 @@ This runs a comprehensive demo showing all observability features in action.
 ## Examples
 
 - **main.py** - Comprehensive overview of all observability features (start here!)
-- **observers_demo.py** - Basic observability (EventLogger, StorageObserver, BarrierDebugger)
-- **metrics_demo.py** - Metrics and visualization (MetricsCollector, TimelineVisualizer, StateDiffTracker)
-- **replay_demo.py** - Replay and comparison (ReplayObserver, compare_runs)
+- **observers_demo.py** - Basic observability (debug=True, EventLogger, BarrierDebugger, persist=True)
+- **metrics_demo.py** - Metrics and visualization (RuntimeMetrics, TimelineVisualizer, StateDiffTracker)
+- **replay_demo.py** - Run comparison (compare_runs, format_comparison)
 - **cli_workflow_demo.py** - Generate test data for CLI commands
 
 ## Key Features Demonstrated
@@ -34,75 +34,21 @@ This runs a comprehensive demo showing all observability features in action.
 ### Basic Observability (observers_demo.py)
 - **debug=True Parameter**: Simplest way to enable observability
 - **EventLogger**: Real-time colored console output
-- **StorageObserver**: Persist runs to SQLite for later analysis
+- **persist=True**: Automatic SQLite persistence via internal observer
 - **BarrierDebugger**: Detect hanging parallel execution
 - **Multiple Observers**: Combine different observers together
 
 ### Metrics & Visualization (metrics_demo.py)
-- **MetricsCollector**: Track performance and identify bottlenecks
+- **RuntimeMetrics**: Built-in step latencies, queue depth, and task counts from the FINISH event
 - **TimelineVisualizer**: Generate ASCII, HTML, and Mermaid diagrams
 - **StateDiffTracker**: Track state changes across pipeline steps
 - **CLI Integration**: Query runs with `justpipe list`, `show`, `timeline`
 
-### Replay & Compare (replay_demo.py)
-- **ReplayObserver**: Reproduce runs with exact same initial state
-- **compare_runs()**: Compare two runs to identify differences
-- **Export**: Export run data to JSON for external analysis
+### Compare (replay_demo.py)
+- **compare_runs()**: Compare two runs to identify timing differences
+- **format_comparison()**: Human-readable comparison output
+- **SQLiteBackend**: Query persisted runs for analysis
 - **CLI Compare**: Use `justpipe compare` to find performance regressions
-
-## Expected Output
-
-```text
-======================================================================
-JUSTPIPE OBSERVABILITY DEMO
-======================================================================
-
-Running pipeline with observability enabled...
-Input: 'This is a great example of pipeline observability'
-
-[00:00:00.001] START            system
-[00:00:00.002] STEP_START       parse_input
-[00:00:00.012] STEP_END         parse_input
-[00:00:00.013] STEP_START       count_words
-[00:00:00.033] STEP_END         count_words
-[00:00:00.034] STEP_START       analyze_sentiment
-[00:00:00.049] STEP_END         analyze_sentiment
-[00:00:00.050] FINISH           system (status=success)
-
-======================================================================
-RESULTS
-======================================================================
-
-Final State:
-  Parsed: THIS IS A GREAT EXAMPLE OF PIPELINE OBSERVABILITY
-  Word Count: 8
-  Sentiment: positive
-
-Performance Metrics:
-  Total Duration: 0.049s
-  Total Steps: 3
-  Bottleneck: count_words
-
-Stored in Database:
-  Run ID: a1b2c3d4e5f6...
-  Storage: ~/.justpipe
-
-Timeline saved to: timeline.txt
-
-======================================================================
-CLI COMMANDS
-======================================================================
-
-Query this run with CLI commands:
-  justpipe show a1b2c3d4
-  justpipe timeline a1b2c3d4
-  justpipe export a1b2c3d4
-
-List all runs:
-  justpipe list
-  justpipe list --pipeline document_processor
-  justpipe list --status success
-```
 
 ## API Reference
 
@@ -112,19 +58,19 @@ List all runs:
 from justpipe.observability import Observer
 
 class MyObserver(Observer):
-    async def on_pipeline_start(self, state, context):
+    async def on_pipeline_start(self, state, context, meta):
         """Called before pipeline execution starts."""
         pass
 
-    async def on_event(self, event: Event, state):
+    async def on_event(self, state, context, meta, event):
         """Called for each event during execution."""
         pass
 
-    async def on_pipeline_end(self, state, duration: float):
+    async def on_pipeline_end(self, state, context, meta, duration_s):
         """Called after pipeline completes successfully."""
         pass
 
-    async def on_pipeline_error(self, error: Exception, state):
+    async def on_pipeline_error(self, state, context, meta, error):
         """Called when pipeline fails."""
         pass
 ```
@@ -136,69 +82,59 @@ from justpipe.observability import EventLogger
 
 # Configure log level
 logger = EventLogger(
-    level="INFO",      # DEBUG, INFO, WARNING, ERROR
-    stream=sys.stderr, # Output stream
-    use_colors=True    # Enable ANSI colors
+    level="INFO",                         # DEBUG, INFO, WARNING, ERROR
+    sink=EventLogger.stderr_sink()        # Output sink
 )
 
 pipe.add_observer(logger)
 ```
 
-### SQLite Storage
+### Persistence
 
 ```python
-from justpipe.storage import SQLiteStorage
+from justpipe import Pipe
+from justpipe.storage.sqlite import SQLiteBackend
 
-storage = SQLiteStorage("~/.justpipe")
+# persist=True enables automatic SQLite storage
+pipe = Pipe(name="my_pipeline", persist=True)
 
-# Create run
-run_id = await storage.create_run("my_pipeline")
+# Query persisted data via SQLiteBackend
+backend = SQLiteBackend("/path/to/runs.db")
 
-# Add events
-await storage.add_event(run_id, event)
-
-# Query runs
-runs = await storage.list_runs(
-    pipeline_name="my_pipeline",
-    status="success",
-    limit=100
-)
-
-# Get events
-events = await storage.get_events(run_id)
-
-# Delete run
-await storage.delete_run(run_id)
-```
-
-### StorageObserver
-
-```python
-from justpipe.observability import StorageObserver
-
-observer = StorageObserver(
-    storage,
-    save_initial_state=True,  # Save state as artifact
-    pipeline_name="custom_name"  # Override pipeline name
-)
-
-pipe.add_observer(observer)
-
-# After run
-run_id = observer.get_run_id()
+runs = backend.list_runs()
+events = backend.get_events(run_id)
+run = backend.get_run(run_id)
 ```
 
 ### BarrierDebugger
 
 ```python
+import time
 from justpipe.observability import BarrierDebugger
 
 debugger = BarrierDebugger(
     warn_after=10.0,   # Warning threshold in seconds
-    stream=sys.stderr  # Output stream
+    clock=time.time     # Clock function
 )
 
 pipe.add_observer(debugger)
+```
+
+### Run Comparison
+
+```python
+from justpipe.observability import compare_runs, format_comparison
+from justpipe.storage.sqlite import SQLiteBackend
+
+backend = SQLiteBackend("/path/to/runs.db")
+
+run1 = backend.get_run(run1_id)
+run2 = backend.get_run(run2_id)
+events1 = backend.get_events(run1_id)
+events2 = backend.get_events(run2_id)
+
+comparison = compare_runs(run1, events1, run2, events2)
+print(format_comparison(comparison))
 ```
 
 ## Event Types
@@ -210,56 +146,32 @@ The observability system tracks the following event types:
 - **Parallel Execution**: `BARRIER_WAIT`, `BARRIER_RELEASE`, `MAP_START`, `MAP_WORKER`, `MAP_COMPLETE`
 - **State Tracking**: `STATE_CHANGE`
 
+## Event.meta
+
+`Event.meta` carries scope-appropriate metadata:
+
+- **STEP_END / STEP_ERROR**: Step-scoped meta (user data + `framework` timing)
+- **FINISH**: Run-scoped meta from `ctx.meta.run`
+
+Step meta `framework` key includes `duration_s`, `attempt`, and `status`.
+
 ## Storage Structure
 
-When using SQLiteStorage, data is stored in:
+When using `persist=True`, data is stored under `JUSTPIPE_STORAGE_PATH` (default `~/.justpipe`):
 
 ```
 ~/.justpipe/
-├── runs.db              # SQLite database
-│   ├── runs table       # Pipeline run metadata
-│   └── events table     # Event stream
-└── artifacts/
-    └── <run_id>/
-        └── initial_state.json
-```
-
-## Query Examples
-
-### List Recent Runs
-```python
-runs = await storage.list_runs(limit=10)
-for run in runs:
-    print(f"{run.id}: {run.status} ({run.duration:.2f}s)")
-```
-
-### Filter by Status
-```python
-failed_runs = await storage.list_runs(status="error")
-```
-
-### Get Run Events
-```python
-events = await storage.get_events(run_id)
-for event in events:
-    print(f"[{event.timestamp}] {event.event_type}: {event.step_name}")
-```
-
-### Filter Events by Type
-```python
-from justpipe import EventType
-
-errors = await storage.get_events(
-    run_id,
-    event_types=[EventType.STEP_ERROR]
-)
+└── <pipeline_name>/
+    └── runs.db              # SQLite database
+        ├── runs table       # Pipeline run metadata
+        └── events table     # Event stream
 ```
 
 ## Performance Impact
 
 With all observers enabled:
 - **EventLogger**: ~1-2% overhead
-- **StorageObserver**: ~3-5% overhead
+- **persist=True**: ~3-5% overhead
 - **BarrierDebugger**: <1% overhead
 
 **Total**: <10% overhead
@@ -268,8 +180,7 @@ Observers are optional and have zero overhead when not used.
 
 ## See Also
 
-- **PRD**: `PRD-Observability.md` - Full product requirements
-- **Tests**: `tests/unit/test_observability.py` - Comprehensive test suite
+- **Tests**: `tests/unit/observability/` - Observer test suite
 - **CLI README**: `justpipe/cli/README.md` - CLI commands documentation
 
 ## Pipeline Graph

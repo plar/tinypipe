@@ -7,6 +7,7 @@ from datetime import date, datetime, timedelta
 
 from justpipe.cli.formatting import format_duration
 from justpipe.cli.registry import PipelineRegistry
+from justpipe.storage.interface import MAX_QUERY_LIMIT
 from justpipe.types import PipelineTerminalStatus
 
 
@@ -18,7 +19,7 @@ def stats_command(
     """Show pipeline statistics."""
     cutoff = datetime.now() - timedelta(days=days)
 
-    all_runs = registry.list_all_runs(pipeline_name=pipeline, limit=10000)
+    all_runs = registry.list_all_runs(pipeline_name=pipeline, limit=MAX_QUERY_LIMIT)
 
     if not all_runs:
         print("No runs found")
@@ -119,9 +120,9 @@ def stats_command(
         day = a.run.start_time.date()
         daily_counts[day] += 1
 
-    print("Daily Activity (last 7 days):")
+    print(f"Daily Activity (last {days} days):")
     today = datetime.now().date()
-    for i in range(min(days, 7)):
+    for i in range(days):
         day = today - timedelta(days=i)
         count = daily_counts.get(day, 0)
         bar = "█" * (count // 2) if count > 0 else ""

@@ -1,26 +1,23 @@
 """Main CLI entry point for justpipe commands."""
 
-import os
-from pathlib import Path
 from typing import Any
 
-import click
+try:
+    import click
+except ImportError:
+    raise ImportError(
+        "The justpipe CLI requires extra dependencies. "
+        "Install them with: pip install 'justpipe[cli]'"
+    ) from None
 
+from justpipe._internal.shared.utils import resolve_storage_path
 from justpipe.cli.registry import PipelineRegistry
 from justpipe.types import PipelineTerminalStatus
 
 
-def get_storage_dir() -> Path:
-    """Get storage directory from environment or default."""
-    raw = os.getenv("JUSTPIPE_STORAGE_PATH")
-    if raw:
-        return Path(raw).expanduser()
-    return Path.home() / ".justpipe"
-
-
 def get_registry() -> PipelineRegistry:
     """Get pipeline registry for the storage directory."""
-    storage_dir = get_storage_dir()
+    storage_dir = resolve_storage_path()
     storage_dir.mkdir(parents=True, exist_ok=True)
     return PipelineRegistry(storage_dir)
 
@@ -139,6 +136,16 @@ def pipelines_command_cli() -> None:
     from justpipe.cli.commands.pipelines import pipelines_command
 
     pipelines_command(get_registry())
+
+
+@cli.command("dashboard")
+@click.option("--port", "-p", default=8741, help="Port to serve on")
+@click.option("--no-open", is_flag=True, help="Don't auto-open browser")
+def dashboard_command_cli(port: Any, no_open: Any) -> None:
+    """Open the web dashboard."""
+    from justpipe.cli.commands.dashboard import dashboard_command
+
+    dashboard_command(get_registry(), port, no_open)
 
 
 def main() -> None:

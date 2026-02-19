@@ -69,7 +69,6 @@ map_item_counts = st.integers(min_value=0, max_value=100)
 
 @given(state=nested_states)
 @settings(max_examples=50, deadline=1000)
-@pytest.mark.asyncio
 async def test_fuzz_pipeline_with_random_state(state: Any) -> None:
     """Test that pipeline handles arbitrary state objects without crashing."""
     pipe: Pipe[Any, Any] = Pipe()
@@ -95,7 +94,6 @@ async def test_fuzz_pipeline_with_random_state(state: Any) -> None:
 
 @given(state_obj=state_objects)
 @settings(max_examples=50, deadline=1000)
-@pytest.mark.asyncio
 async def test_fuzz_pipeline_with_dataclass_state(state_obj: RandomState) -> None:
     """Test pipeline with random dataclass state."""
     pipe: Pipe[Any, Any] = Pipe()
@@ -117,7 +115,6 @@ async def test_fuzz_pipeline_with_dataclass_state(state_obj: RandomState) -> Non
 
 @given(queue_size=queue_sizes)
 @settings(max_examples=30, deadline=2000)
-@pytest.mark.asyncio
 async def test_fuzz_queue_size_configuration(queue_size: int) -> None:
     """Test pipeline with random queue sizes."""
     pipe: Pipe[Any, Any] = Pipe(queue_size=queue_size)
@@ -144,7 +141,6 @@ async def test_fuzz_queue_size_configuration(queue_size: int) -> None:
     deadline=3000,
     suppress_health_check=[HealthCheck.function_scoped_fixture],
 )
-@pytest.mark.asyncio
 async def test_fuzz_map_concurrency(
     max_concurrency: int | None, item_count: int
 ) -> None:
@@ -179,7 +175,6 @@ async def test_fuzz_map_concurrency(
 
 @given(timeout=timeout_values)
 @settings(max_examples=20, deadline=15000)
-@pytest.mark.asyncio
 async def test_fuzz_pipeline_timeout(timeout: float | None) -> None:
     """Test pipeline with random timeout values."""
     pipe: Pipe[Any, Any] = Pipe()
@@ -197,6 +192,8 @@ async def test_fuzz_pipeline_timeout(timeout: float | None) -> None:
         # Might timeout with very small values, but shouldn't crash
         try:
             events = [e async for e in pipe.run(None, timeout=timeout)]
+            # If it completes, it should have a terminal event
+            assert any(e.type in (EventType.FINISH, EventType.TIMEOUT) for e in events)
         except TimeoutError:
             pass  # Expected for very small timeouts
 
@@ -211,7 +208,6 @@ async def test_fuzz_pipeline_timeout(timeout: float | None) -> None:
     step_count=st.integers(min_value=1, max_value=10),
 )
 @settings(max_examples=20, deadline=2000)
-@pytest.mark.asyncio
 async def test_fuzz_cancellation_timing(cancel_delay: float, step_count: int) -> None:
     """Test cancellation at random points during execution."""
     cancel = CancellationToken()
@@ -265,13 +261,13 @@ async def test_fuzz_cancellation_timing(cancel_delay: float, step_count: int) ->
                     cancelled = True
                     break
         completed = True
-    except Exception:
-        pass
+    except (asyncio.CancelledError, TimeoutError):
+        pass  # Expected cancellation-related exceptions
 
     await task
 
     # Either cancelled or completed (timing dependent)
-    # Just verify it didn't crash
+    assert cancelled or completed, "Pipeline must either cancel or complete"
     assert cancelled or completed
 
 
@@ -286,7 +282,6 @@ async def test_fuzz_cancellation_timing(cancel_delay: float, step_count: int) ->
     item_count=st.integers(min_value=0, max_value=20),
 )
 @settings(max_examples=10, deadline=5000)
-@pytest.mark.asyncio
 async def test_fuzz_combined_edge_cases(
     queue_size: int, concurrency: int, item_count: int
 ) -> None:
@@ -325,7 +320,6 @@ async def test_fuzz_combined_edge_cases(
     )
 )
 @settings(max_examples=20, deadline=1000)
-@pytest.mark.asyncio
 async def test_fuzz_step_names(step_name: str) -> None:
     """Test pipeline with random step names."""
     pipe: Pipe[Any, Any] = Pipe()
@@ -347,7 +341,6 @@ async def test_fuzz_step_names(step_name: str) -> None:
 
 @given(depth=st.integers(min_value=1, max_value=5))
 @settings(max_examples=10, deadline=2000)
-@pytest.mark.asyncio
 async def test_fuzz_pipeline_depth(depth: int) -> None:
     """Test pipeline with random nesting depth."""
     pipe: Pipe[Any, Any] = Pipe()
@@ -387,7 +380,6 @@ async def test_fuzz_pipeline_depth(depth: int) -> None:
 
 @given(raises_error=st.booleans())
 @settings(max_examples=10, deadline=1000)
-@pytest.mark.asyncio
 async def test_fuzz_error_handling(raises_error: bool) -> None:
     """Test that pipeline handles errors gracefully."""
     pipe: Pipe[Any, Any] = Pipe()

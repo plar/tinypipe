@@ -19,10 +19,11 @@ def make_event_publisher(
     async def _publish(event: Event) -> Event:
         if prepare_event is not None:
             event = prepare_event(event)
+        event = apply_hooks(event)
         if on_event is not None:
             await on_event(event)
         state = state_getter()
         await notify_event(event, state)
-        return apply_hooks(event)
+        return event
 
     return _publish

@@ -1,6 +1,5 @@
 from unittest.mock import AsyncMock, MagicMock
 
-import pytest
 
 from justpipe._internal.runtime.orchestration.control import StepCompleted
 from justpipe._internal.runtime.execution.result_handler import _ResultHandler
@@ -13,7 +12,6 @@ async def _noop() -> None:
     return None
 
 
-@pytest.mark.asyncio
 async def test_raise_with_exception_delegates_to_failure_handler() -> None:
     orchestrator = FakeOrchestrator()
     failure_handler = MagicMock()
@@ -42,8 +40,8 @@ async def test_raise_with_exception_delegates_to_failure_handler() -> None:
     failure_handler.handle_failure.assert_awaited_once()
 
 
-@pytest.mark.asyncio
-async def test_raise_without_exception_is_noop() -> None:
+async def test_raise_without_exception_synthesizes_error() -> None:
+    """Raise(None) should still trigger failure handling with a synthesized error."""
     orchestrator = FakeOrchestrator()
     failure_handler = MagicMock()
     failure_handler.handle_failure = AsyncMock()
@@ -61,4 +59,9 @@ async def test_raise_without_exception_is_noop() -> None:
     ]
 
     assert events == []
-    failure_handler.handle_failure.assert_not_awaited()
+    failure_handler.handle_failure.assert_awaited_once()
+    # The synthesized error should be a RuntimeError
+    call_args = failure_handler.handle_failure.call_args
+    error_arg = call_args[0][2]  # third positional arg is the error
+    assert isinstance(error_arg, RuntimeError)
+    assert "Raise()" in str(error_arg)

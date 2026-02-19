@@ -9,7 +9,6 @@ from justpipe import Pipe, EventType
 pytestmark = pytest.mark.slow
 
 
-@pytest.mark.asyncio
 async def test_map_max_concurrency_throttling() -> None:
     """Test that max_concurrency limits concurrent workers."""
     pipe: Pipe[Any, Any] = Pipe()
@@ -39,7 +38,6 @@ async def test_map_max_concurrency_throttling() -> None:
     assert max_concurrent > 0  # At least some were concurrent
 
 
-@pytest.mark.asyncio
 async def test_map_max_concurrency_none_is_unlimited() -> None:
     """Test that max_concurrency=None allows unlimited concurrency."""
     pipe: Pipe[Any, Any] = Pipe()
@@ -64,7 +62,6 @@ async def test_map_max_concurrency_none_is_unlimited() -> None:
     assert max_concurrent >= 8  # Allow some timing variance
 
 
-@pytest.mark.asyncio
 async def test_map_max_concurrency_one_is_sequential() -> None:
     """Test that max_concurrency=1 forces sequential execution."""
     pipe: Pipe[Any, Any] = Pipe()
@@ -91,7 +88,6 @@ async def test_map_max_concurrency_one_is_sequential() -> None:
         assert all(event[0] != "start" for event in between)
 
 
-@pytest.mark.asyncio
 async def test_map_max_concurrency_with_slow_workers() -> None:
     """Test throttling with workers that take varying time."""
     pipe: Pipe[Any, Any] = Pipe()
@@ -121,7 +117,6 @@ async def test_map_max_concurrency_with_slow_workers() -> None:
     assert len(completed) == 6
 
 
-@pytest.mark.asyncio
 async def test_map_max_concurrency_zero_items() -> None:
     """Test that max_concurrency works with zero items."""
     pipe: Pipe[Any, Any] = Pipe()
@@ -151,7 +146,6 @@ async def test_map_max_concurrency_zero_items() -> None:
     assert len(map_events) == 2
 
 
-@pytest.mark.asyncio
 async def test_map_max_concurrency_single_item() -> None:
     """Test that max_concurrency works with a single item."""
     pipe: Pipe[Any, Any] = Pipe()
@@ -173,7 +167,6 @@ async def test_map_max_concurrency_single_item() -> None:
     assert worker_called == 1
 
 
-@pytest.mark.asyncio
 async def test_map_max_concurrency_preserves_order_in_events() -> None:
     """Test that MAP_WORKER events maintain order even with throttling."""
     pipe: Pipe[Any, Any] = Pipe()
@@ -194,7 +187,6 @@ async def test_map_max_concurrency_preserves_order_in_events() -> None:
     assert indices == list(range(5))
 
 
-@pytest.mark.asyncio
 async def test_map_max_concurrency_with_errors() -> None:
     """Test that max_concurrency handles worker errors gracefully."""
     pipe: Pipe[Any, Any] = Pipe()
@@ -220,7 +212,6 @@ async def test_map_max_concurrency_with_errors() -> None:
     assert len(error_events) > 0
 
 
-@pytest.mark.asyncio
 async def test_map_complete_emitted_after_workers_drain() -> None:
     """MAP_COMPLETE should be emitted only after all workers finish."""
     pipe: Pipe[dict[str, int], Any] = Pipe(dict, Any)

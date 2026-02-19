@@ -164,7 +164,6 @@ class TestAutoPersistenceObserver:
         )
         return obs, backend
 
-    @pytest.mark.asyncio
     async def test_buffers_events_and_flushes_on_end(self) -> None:
         obs, backend = self._make_observer()
         meta = _make_meta()
@@ -185,7 +184,6 @@ class TestAutoPersistenceObserver:
         events = backend.get_events("test-run-123")
         assert len(events) == 2
 
-    @pytest.mark.asyncio
     async def test_flush_on_error(self) -> None:
         obs, backend = self._make_observer()
         meta = _make_meta()
@@ -199,7 +197,6 @@ class TestAutoPersistenceObserver:
         assert run.status == PipelineTerminalStatus.FAILED
         assert run.error_message == "boom"
 
-    @pytest.mark.asyncio
     async def test_extracts_status_from_finish_event(self) -> None:
         obs, backend = self._make_observer()
         meta = _make_meta()
@@ -226,33 +223,33 @@ class TestAutoPersistenceObserver:
         assert run.error_message == "step exploded"
         assert run.error_step == "step_a"
 
-    @pytest.mark.asyncio
-    async def test_extracts_user_meta_from_finish(self) -> None:
+    async def test_extracts_run_meta_from_finish(self) -> None:
         obs, backend = self._make_observer()
         meta = _make_meta()
 
         await obs.on_pipeline_start(None, None, meta)
 
-        finish_event = _make_event(
-            event_type=EventType.FINISH,
+        # run_meta is now on Event.meta (not payload.run_meta)
+        finish_event = Event(
+            type=EventType.FINISH,
             stage="system",
             node_kind=NodeKind.SYSTEM,
             payload={
                 "status": "success",
                 "duration_s": 1.0,
-                "user_meta": {"run": {"tags": ["prod"]}},
             },
+            meta={"data": {"env": "prod"}, "tags": ["prod"]},
         )
         await obs.on_event(None, None, meta, finish_event)
         await obs.on_pipeline_end(None, None, meta, 1.0)
 
         run = backend.get_run("test-run-123")
         assert run is not None
-        assert run.user_meta is not None
-        parsed = json.loads(run.user_meta)
-        assert parsed["run"]["tags"] == ["prod"]
+        assert run.run_meta is not None
+        parsed = json.loads(run.run_meta)
+        assert parsed["tags"] == ["prod"]
+        assert parsed["data"]["env"] == "prod"
 
-    @pytest.mark.asyncio
     async def test_clears_buffer_after_flush(self) -> None:
         obs, backend = self._make_observer()
 
@@ -274,14 +271,26 @@ class TestAutoPersistenceObserver:
         events = backend.get_events("run-2")
         assert len(events) == 1
 
-    @pytest.mark.asyncio
-    async def test_persistence_failure_does_not_raise(self) -> None:
-        """Pipeline execution NEVER fails due to persistence errors."""
-        broken_backend = MagicMock()
-        broken_backend.save_run.side_effect = OSError("disk full")
+    @pytest.mark.parametrize(
+        ("error_class", "error_msg", "flush_via"),
+        [
+            pytest.param(OSError, "disk full", "end", id="os-error-end"),
+            pytest.param(RuntimeError, "connection lost", "end", id="runtime-error-end"),
+            pytest.param(PermissionError, "read-only fs", "error", id="permission-error-error"),
+        ],
+    )
+    async def test_backend_save_error_suppressed(
+        self,
+        error_class: type[Exception],
+        error_msg: str,
+        flush_via: str,
+    ) -> None:
+        """Backend raising on save_run is suppressed — buffer is always cleaned up."""
+        broken = MagicMock()
+        broken.save_run.side_effect = error_class(error_msg)
 
         obs = _AutoPersistenceObserver(
-            backend=broken_backend,
+            backend=broken,
             pipeline_hash="abc123",
             describe_snapshot={},
         )
@@ -289,10 +298,14 @@ class TestAutoPersistenceObserver:
 
         await obs.on_pipeline_start(None, None, meta)
         await obs.on_event(None, None, meta, _make_event())
-        # Should not raise
-        await obs.on_pipeline_end(None, None, meta, 1.0)
+        if flush_via == "end":
+            await obs.on_pipeline_end(None, None, meta, 1.0)
+        else:
+            await obs.on_pipeline_error(None, None, meta, ValueError("step boom"))
 
-    @pytest.mark.asyncio
+        assert obs._events == []
+        assert obs._run_id is None
+
     async def test_no_flush_without_start(self) -> None:
         """Flush is a no-op if on_pipeline_start was never called."""
         obs, backend = self._make_observer()
@@ -303,7 +316,6 @@ class TestAutoPersistenceObserver:
 
         assert backend.get_run("test-run-123") is None
 
-    @pytest.mark.asyncio
     async def test_run_record_has_timestamps(self) -> None:
         obs, backend = self._make_observer()
         meta = _make_meta()
@@ -318,51 +330,6 @@ class TestAutoPersistenceObserver:
         assert isinstance(run.duration, timedelta)
         assert run.duration.total_seconds() >= 0
 
-    @pytest.mark.asyncio
-    async def test_backend_save_error_suppressed_on_end(self) -> None:
-        """Backend raising on save_run is suppressed during on_pipeline_end."""
-        broken = MagicMock()
-        broken.save_run.side_effect = RuntimeError("connection lost")
-
-        obs = _AutoPersistenceObserver(
-            backend=broken,
-            pipeline_hash="abc123",
-            describe_snapshot={},
-        )
-        meta = _make_meta()
-
-        await obs.on_pipeline_start(None, None, meta)
-        await obs.on_event(None, None, meta, _make_event())
-        # Must not propagate
-        await obs.on_pipeline_end(None, None, meta, 1.0)
-
-        # Buffer should be cleared despite the error
-        assert obs._events == []
-        assert obs._run_id is None
-
-    @pytest.mark.asyncio
-    async def test_backend_save_error_suppressed_on_error(self) -> None:
-        """Backend raising on save_run is suppressed during on_pipeline_error."""
-        broken = MagicMock()
-        broken.save_run.side_effect = PermissionError("read-only fs")
-
-        obs = _AutoPersistenceObserver(
-            backend=broken,
-            pipeline_hash="abc123",
-            describe_snapshot={},
-        )
-        meta = _make_meta()
-
-        await obs.on_pipeline_start(None, None, meta)
-        await obs.on_event(None, None, meta, _make_event())
-        # Must not propagate
-        await obs.on_pipeline_error(None, None, meta, ValueError("step boom"))
-
-        # Buffer should be cleared despite the error
-        assert obs._events == []
-        assert obs._run_id is None
-
-    @pytest.mark.asyncio
     async def test_serialize_event_error_suppressed(self) -> None:
         """Serialization failure for a single event logs warning, does not crash."""
         obs, backend = self._make_observer()
@@ -389,3 +356,65 @@ class TestAutoPersistenceObserver:
         # First event was saved; bad event may or may not be depending on fallback
         run = backend.get_run("test-run-123")
         assert run is not None
+
+    async def test_flush_interval_incremental(self) -> None:
+        """flush_interval triggers intermediate append_events calls."""
+        backend = InMemoryBackend()
+        obs = _AutoPersistenceObserver(
+            backend=backend,
+            pipeline_hash="abc123",
+            describe_snapshot={"name": "test_pipe"},
+            flush_interval=3,
+        )
+        meta = _make_meta()
+
+        await obs.on_pipeline_start(None, None, meta)
+
+        # Send 3 events — should trigger intermediate flush
+        for i in range(3):
+            await obs.on_event(
+                None, None, meta, _make_event(stage=f"step_{i}")
+            )
+
+        # Events should have been flushed incrementally
+        assert obs._flushed_count == 3
+        assert len(obs._events) == 0
+
+        # Send 2 more (below threshold) + finish
+        await obs.on_event(None, None, meta, _make_event(stage="step_3"))
+        await obs.on_event(None, None, meta, _make_event(stage="step_4"))
+        await obs.on_pipeline_end(None, None, meta, 1.0)
+
+        run = backend.get_run("test-run-123")
+        assert run is not None
+        assert run.status == PipelineTerminalStatus.SUCCESS
+
+        # All 5 events should be stored
+        events = backend.get_events("test-run-123")
+        assert len(events) == 5
+
+    async def test_flush_interval_none_buffers_all(self) -> None:
+        """Without flush_interval, all events buffer until end."""
+        backend = InMemoryBackend()
+        obs = _AutoPersistenceObserver(
+            backend=backend,
+            pipeline_hash="abc123",
+            describe_snapshot={"name": "test_pipe"},
+            flush_interval=None,
+        )
+        meta = _make_meta()
+
+        await obs.on_pipeline_start(None, None, meta)
+        for i in range(10):
+            await obs.on_event(
+                None, None, meta, _make_event(stage=f"step_{i}")
+            )
+
+        # Nothing flushed yet
+        assert obs._flushed_count == 0
+        assert len(obs._events) == 10
+
+        await obs.on_pipeline_end(None, None, meta, 1.0)
+
+        events = backend.get_events("test-run-123")
+        assert len(events) == 10

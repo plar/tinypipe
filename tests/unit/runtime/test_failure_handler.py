@@ -7,7 +7,6 @@ from justpipe.types import Event, EventType
 from justpipe._internal.runtime.orchestration.control import StepCompleted
 
 
-@pytest.mark.asyncio
 async def test_failure_handler_basic_reporting(
     fake_orchestrator: Any,
 ) -> None:
@@ -34,7 +33,6 @@ async def test_failure_handler_basic_reporting(
     assert fake_orchestrator.submissions[1].result is None
 
 
-@pytest.mark.asyncio
 async def test_failure_handler_local_escalation(
     fake_orchestrator: Any,
 ) -> None:
@@ -62,7 +60,6 @@ async def test_failure_handler_local_escalation(
     assert fake_orchestrator.submissions[0].result == "recovered"
 
 
-@pytest.mark.asyncio
 async def test_failure_handler_logging_uses_standard_timestamp(
     caplog: pytest.LogCaptureFixture,
     fake_orchestrator: Any,
@@ -90,3 +87,55 @@ async def test_failure_handler_logging_uses_standard_timestamp(
     assert getattr(record, "error_type") == "ValueError"
     assert getattr(record, "state_type") == "dict"
     assert not hasattr(record, "timestamp")
+
+
+async def test_local_handler_failure_chains_original_error(
+    fake_orchestrator: Any,
+) -> None:
+    """When local handler raises, the original error is preserved as __cause__."""
+    original = ValueError("original step error")
+    handler_error = RuntimeError("handler exploded")
+
+    step = MagicMock()
+    step.on_error = MagicMock()
+
+    invoker = MagicMock()
+    invoker.execute_handler = AsyncMock(side_effect=handler_error)
+    invoker.global_error_handler = None
+
+    handler = _FailureHandler(
+        steps={"step_a": step}, invoker=invoker, orchestrator=fake_orchestrator
+    )
+    await handler.handle_failure(
+        name="step_a", owner="step_a", error=original, state=None, context=None
+    )
+
+    assert handler_error.__cause__ is original
+
+
+async def test_global_handler_failure_chains_escalated_error(
+    fake_orchestrator: Any,
+) -> None:
+    """When global handler raises, the chain preserves both prior errors."""
+    original = ValueError("original")
+    local_error = TypeError("local handler failed")
+    global_error = RuntimeError("global handler failed")
+
+    step = MagicMock()
+    step.on_error = MagicMock()
+
+    invoker = MagicMock()
+    invoker.execute_handler = AsyncMock(
+        side_effect=[local_error, global_error]
+    )
+    invoker.global_error_handler = MagicMock()
+
+    handler = _FailureHandler(
+        steps={"step_a": step}, invoker=invoker, orchestrator=fake_orchestrator
+    )
+    await handler.handle_failure(
+        name="step_a", owner="step_a", error=original, state=None, context=None
+    )
+
+    assert global_error.__cause__ is local_error
+    assert local_error.__cause__ is original

@@ -44,9 +44,8 @@ def _build_step_times(events: list[StoredEvent]) -> dict[str, float]:
         step_name = event.step_name or "unknown"
         if event.event_type == EventType.STEP_START:
             step_starts[step_name] = event.timestamp.timestamp()
-            step_times.setdefault(step_name, 0.0)
         elif event.event_type == EventType.STEP_END and step_name in step_starts:
-            duration = event.timestamp.timestamp() - step_starts[step_name]
+            duration = event.timestamp.timestamp() - step_starts.pop(step_name)
             step_times[step_name] = duration
 
     return step_times

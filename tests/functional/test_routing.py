@@ -3,10 +3,9 @@
 import pytest
 from typing import Any
 from justpipe import Pipe, EventType, Stop, DefinitionError
-from justpipe._internal.types import _Next
+from justpipe.types import _Next
 
 
-@pytest.mark.asyncio
 async def test_dynamic_routing(state: Any) -> None:
     pipe: Pipe[Any, Any] = Pipe()
     executed: list[bool] = []
@@ -24,7 +23,6 @@ async def test_dynamic_routing(state: Any) -> None:
     assert executed
 
 
-@pytest.mark.asyncio
 async def test_declarative_switch(state: Any) -> None:
     pipe: Pipe[Any, Any] = Pipe()
     executed: list[str] = []
@@ -46,7 +44,6 @@ async def test_declarative_switch(state: Any) -> None:
     assert executed == ["b"]
 
 
-@pytest.mark.asyncio
 async def test_switch_callable_routes() -> None:
     pipe: Pipe[Any, Any] = Pipe()
 
@@ -70,7 +67,6 @@ async def test_switch_callable_routes() -> None:
         pass
 
 
-@pytest.mark.asyncio
 async def test_switch_no_match_no_default() -> None:
     pipe: Pipe[Any, Any] = Pipe()
 
@@ -91,7 +87,6 @@ async def test_switch_no_match_no_default() -> None:
     assert "matches no route" in str(events[0].payload)
 
 
-@pytest.mark.asyncio
 async def test_switch_returns_stop() -> None:
     pipe: Pipe[Any, Any] = Pipe()
 
@@ -109,7 +104,6 @@ async def test_switch_returns_stop() -> None:
     assert not any(e.type == EventType.STEP_ERROR for e in events)
 
 
-@pytest.mark.asyncio
 async def test_switch_callable_returns_stop() -> None:
     pipe: Pipe[Any, Any] = Pipe()
 
@@ -126,43 +120,20 @@ async def test_switch_callable_returns_stop() -> None:
     assert not any(e.type == EventType.STEP_ERROR for e in events)
 
 
-@pytest.mark.asyncio
-async def test_dynamic_override_static() -> None:
-    """Test that returning a dynamic route prevents the static route from running."""
+@pytest.mark.parametrize(
+    "dynamic_return",
+    [_Next("dynamic_next"), "dynamic_next"],
+    ids=["_Next", "raw_string"],
+)
+async def test_dynamic_override_static(dynamic_return: Any) -> None:
+    """Returning a dynamic route (via _Next or raw string) skips the static route."""
     pipe: Pipe[Any, Any] = Pipe()
     trace: list[str] = []
 
     @pipe.step("start", to="static_next")
-    async def start(state: Any) -> _Next:
+    async def start(state: Any) -> Any:
         trace.append("start")
-        return _Next("dynamic_next")
-
-    @pipe.step("static_next")
-    async def static_next(state: Any) -> None:
-        trace.append("static_next")
-
-    @pipe.step("dynamic_next")
-    async def dynamic_next(state: Any) -> None:
-        trace.append("dynamic_next")
-
-    async for _ in pipe.run({}, start="start"):
-        pass
-
-    # Expected: start -> dynamic_next
-    # 'static_next' should be skipped because 'start' returned a dynamic route.
-    assert trace == ["start", "dynamic_next"]
-
-
-@pytest.mark.asyncio
-async def test_dynamic_override_static_raw_string() -> None:
-    """Test that returning a raw string as a dynamic route prevents the static route from running."""
-    pipe: Pipe[Any, Any] = Pipe()
-    trace: list[str] = []
-
-    @pipe.step("start", to="static_next")
-    async def start(state: Any) -> str:
-        trace.append("start")
-        return "dynamic_next"
+        return dynamic_return
 
     @pipe.step("static_next")
     async def static_next(state: Any) -> None:
@@ -183,7 +154,6 @@ async def test_dynamic_override_static_raw_string() -> None:
 # ============================================================================
 
 
-@pytest.mark.asyncio
 async def test_switch_route_validation_static() -> None:
     """Test that static switch routes are validated at finalize time."""
     pipe: Pipe[Any, Any] = Pipe()
@@ -201,7 +171,6 @@ async def test_switch_route_validation_static() -> None:
     assert "Available steps:" in str(exc_info.value)
 
 
-@pytest.mark.asyncio
 async def test_switch_route_validation_with_default() -> None:
     """Test that switch default route is also validated."""
     pipe: Pipe[Any, Any] = Pipe()
@@ -221,7 +190,6 @@ async def test_switch_route_validation_with_default() -> None:
     assert "nonexistent_default" in str(exc_info.value)
 
 
-@pytest.mark.asyncio
 async def test_switch_route_validation_dynamic_not_validated() -> None:
     """Test that dynamic switch routes (callable) are NOT validated at definition time."""
     pipe: Pipe[Any, Any] = Pipe()
@@ -240,7 +208,6 @@ async def test_switch_route_validation_dynamic_not_validated() -> None:
     assert any(e.type == EventType.FINISH for e in events)
 
 
-@pytest.mark.asyncio
 async def test_switch_multiple_invalid_routes() -> None:
     """Test error message when multiple routes are invalid."""
     pipe: Pipe[Any, Any] = Pipe()

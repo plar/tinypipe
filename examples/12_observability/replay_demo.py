@@ -1,213 +1,122 @@
 """Replay & Compare Demo.
 
 Demonstrates:
-- ReplayObserver - replaying pipelines with stored initial state
-- compare_runs() - comparing two pipeline executions
-- CLI export command - exporting run data to JSON
+- compare_runs() - comparing two pipeline executions programmatically
+- format_comparison() - human-readable comparison output
+- Querying persisted runs via SQLiteBackend
 """
 
 import asyncio
-from justpipe import Pipe
-from justpipe.observability import (
-    StorageObserver,
-    ReplayObserver,
-    compare_runs,
-    format_comparison,
-)
-from justpipe.storage import InMemoryStorage
+import os
+from pathlib import Path
+
+from justpipe import Pipe, EventType
+from justpipe.observability import compare_runs, format_comparison
+from justpipe.storage.sqlite import SQLiteBackend
 
 
 async def main():
     print("=" * 80)
-    print("JUSTPIPE OBSERVABILITY DEMO - Replay & Compare")
+    print("JUSTPIPE OBSERVABILITY DEMO - Compare Runs")
     print("=" * 80)
     print()
 
-    # ==================== Example 1: ReplayObserver ====================
-    print("=" * 60)
-    print("Example 1: ReplayObserver - Replay with Stored State")
-    print("=" * 60)
-    print()
+    tmp_dir = "/tmp/justpipe_replay_demo"
+    os.environ["JUSTPIPE_STORAGE_PATH"] = tmp_dir
 
-    # Create storage
-    storage = InMemoryStorage()
+    # ==================== Run 1: Short input ====================
+    print("Run 1: Short input")
+    pipe1: Pipe[dict, None] = Pipe(name="process_data", persist=True)
 
-    # Create a simple pipeline
-    pipe = Pipe(name="process_data")
-
-    @pipe.step()
-    async def parse(state):
-        """Parse input data."""
+    @pipe1.step("parse", to="count")
+    async def parse1(state: dict):
         state["parsed"] = state.get("raw", "").upper()
-        return state
 
-    @pipe.step()
-    async def count(state):
-        """Count words."""
+    @pipe1.step("count")
+    async def count1(state: dict):
         state["word_count"] = len(state.get("parsed", "").split())
-        return state
 
-    # Add storage observer
-    storage_obs = StorageObserver(storage)
-    pipe.add_observer(storage_obs)
-
-    # Run 1: Original execution with initial state
-    print("Running pipeline with initial state: {'raw': 'hello world'}")
-    initial_state = {"raw": "hello world"}
-    async for event in pipe.run(initial_state):
-        pass
-
-    # Get the run ID
-    runs = await storage.list_runs()
-    source_run_id = runs[0].id
-    print(f"Run ID: {source_run_id[:16]}...")
-    print(f"Final state: {initial_state}")  # State is mutated
+    run1_id: str | None = None
+    async for event in pipe1.run({"raw": "hello world"}):
+        if event.type == EventType.FINISH:
+            run1_id = event.run_id
+    print(f"  Run ID: {run1_id}")
     print()
 
-    # Run 2: Replay with stored initial state (different current state)
-    print("Replaying with stored initial state (ignoring current state)...")
+    # ==================== Run 2: Longer input ====================
+    print("Run 2: Longer input")
+    pipe2: Pipe[dict, None] = Pipe(name="process_data", persist=True)
 
-    # Create a new pipeline instance to simulate a different run
-    pipe2 = Pipe(name="process_data")
-
-    @pipe2.step()
-    async def parse(state):
+    @pipe2.step("parse", to="count")
+    async def parse2(state: dict):
         state["parsed"] = state.get("raw", "").upper()
-        return state
+        await asyncio.sleep(0.01)  # Slightly slower
 
-    @pipe2.step()
-    async def count(state):
+    @pipe2.step("count")
+    async def count2(state: dict):
         state["word_count"] = len(state.get("parsed", "").split())
-        return state
 
-    # Add replay observer
-    replay_obs = ReplayObserver(storage, source_run_id)
-    pipe2.add_observer(replay_obs)
-
-    # Also add storage observer to save the replay run
-    storage_obs2 = StorageObserver(storage)
-    pipe2.add_observer(storage_obs2)
-
-    # Initialize replay observer (loads stored state)
-    await replay_obs.on_pipeline_start({}, {})
-
-    # Get the loaded initial state and use it for replay
-    replayed_initial_state = replay_obs.get_initial_state()
-    print(f"Loaded initial state: {replayed_initial_state}")
-
-    # Run with the replayed state
-    async for event in pipe2.run(replayed_initial_state):
-        pass
-
-    print(f"Replay final state: {replayed_initial_state}")
-    print()
-    print("✓ Replay successful - same initial state reproduced the execution")
+    run2_id: str | None = None
+    async for event in pipe2.run(
+        {"raw": "the quick brown fox jumps over the lazy dog"}
+    ):
+        if event.type == EventType.FINISH:
+            run2_id = event.run_id
+    print(f"  Run ID: {run2_id}")
     print()
 
-    # ==================== Example 2: compare_runs() ====================
-    print("=" * 60)
-    print("Example 2: compare_runs() - Comparing Two Runs")
-    print("=" * 60)
-    print()
+    # ==================== Compare runs ====================
+    if run1_id and run2_id:
+        # Find the backend for the persisted pipeline
+        db_files = list(Path(tmp_dir).rglob("runs.db"))
+        if db_files:
+            backend = SQLiteBackend(db_files[0])
 
-    # Create a third run with different initial state
-    pipe3 = Pipe(name="process_data")
+            print("=" * 60)
+            print("Comparing Run 1 vs Run 2")
+            print("=" * 60)
+            print()
 
-    @pipe3.step()
-    async def parse(state):
-        state["parsed"] = state.get("raw", "").upper()
-        return state
+            # Load run records and events for comparison
+            rec1 = backend.get_run(run1_id)
+            rec2 = backend.get_run(run2_id)
+            ev1 = backend.get_events(run1_id)
+            ev2 = backend.get_events(run2_id)
 
-    @pipe3.step()
-    async def count(state):
-        state["word_count"] = len(state.get("parsed", "").split())
-        return state
+            if rec1 and rec2:
+                comparison = compare_runs(
+                    rec1, ev1, rec2, ev2,
+                    pipeline1_name="process_data",
+                    pipeline2_name="process_data",
+                )
+                output = format_comparison(comparison)
+                print(output)
+                print()
 
-    storage_obs3 = StorageObserver(storage)
-    pipe3.add_observer(storage_obs3)
-
-    # Run with more data
-    different_state = {"raw": "the quick brown fox jumps over the lazy dog"}
-    async for event in pipe3.run(different_state):
-        pass
-
-    # Get all runs
-    all_runs = await storage.list_runs()
-    print(f"Total runs stored: {len(all_runs)}")
-    print()
-
-    # Compare first two runs (same initial state)
-    run1_id = all_runs[2].id  # Original run
-    run2_id = all_runs[1].id  # Replay run
-
-    print("Comparing Run 1 (original) vs Run 2 (replay):")
-    comparison1 = await compare_runs(storage, run1_id, run2_id)
-    output1 = format_comparison(comparison1)
-    print(output1)
-    print()
-
-    # Compare first and third runs (different initial states)
-    run3_id = all_runs[0].id  # Latest run
-
-    print("Comparing Run 1 vs Run 3 (different data):")
-    comparison2 = await compare_runs(storage, run1_id, run3_id)
-    output2 = format_comparison(comparison2)
-    print(output2)
-    print()
-
-    # ==================== Example 3: CLI Export (Programmatic) ====================
-    print("=" * 60)
-    print("Example 3: Export Run Data to JSON")
-    print("=" * 60)
-    print()
-
-    from justpipe.cli.commands.export import export_command
-
-    print(f"Exporting run {run1_id[:16]}...")
-    await export_command(storage, run1_id, output_file="/tmp/run_export.json")
-    print()
-
-    # Read and display excerpt
-    import json
-
-    with open("/tmp/run_export.json") as f:
-        export_data = json.load(f)
-
-    print("Export data structure:")
-    print(f"  - Run ID: {export_data['run']['id'][:16]}...")
-    print(f"  - Pipeline: {export_data['run']['pipeline_name']}")
-    print(f"  - Status: {export_data['run']['status']}")
-    print(f"  - Event count: {export_data['event_count']}")
-    print()
-
-    # ==================== Example 4: CLI Compare (Programmatic) ====================
-    print("=" * 60)
-    print("Example 4: CLI Compare Command")
-    print("=" * 60)
-    print()
-
-    from justpipe.cli.commands.compare import compare_command
-
-    print("Using CLI compare command:")
-    await compare_command(storage, run1_id, run3_id)
-    print()
+            # Show all stored runs
+            runs = backend.list_runs()
+            print(f"Total runs stored: {len(runs)}")
+            for run in runs:
+                print(
+                    f"  {run.run_id[:12]}  "
+                    f"status={run.status.value:<10}  "
+                    f"duration={run.duration.total_seconds():.3f}s"
+                )
+            print()
 
     # ==================== Summary ====================
     print("=" * 60)
     print("Summary")
     print("=" * 60)
     print()
-    print("✓ ReplayObserver - Load and replay with stored initial state")
-    print("✓ compare_runs() - Programmatic run comparison")
-    print("✓ format_comparison() - Human-readable comparison output")
-    print("✓ CLI export command - Export run data to JSON")
-    print("✓ CLI compare command - Compare runs from command line")
+    print("  compare_runs() - Programmatic run comparison")
+    print("  format_comparison() - Human-readable comparison output")
+    print("  persist=True - Automatic SQLite persistence")
     print()
     print("These features enable:")
-    print("  • Bug reproduction with exact same inputs")
-    print("  • Performance regression detection")
-    print("  • A/B testing different pipeline versions")
-    print("  • Run data export for external analysis")
+    print("  Performance regression detection")
+    print("  A/B testing different pipeline versions")
+    print("  Run data querying for external analysis")
     print()
 
 

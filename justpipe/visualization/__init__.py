@@ -68,10 +68,7 @@ __all__ = [
     "VisualEdge",
     "ParallelGroup",
     "NodeKind",
-    # Builder
-    "_PipelineASTBuilder",
     # Mermaid rendering
-    "_MermaidRenderer",
     "MermaidTheme",
     # Convenience function
     "generate_mermaid_graph",

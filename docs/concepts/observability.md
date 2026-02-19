@@ -40,6 +40,25 @@ The pipeline execution always concludes with exactly one `EventType.FINISH` even
 | `errors` | `list[FailureRecord]` | Full chain of failures recorded during the run. |
 | `metrics` | `RuntimeMetrics \| None` | Built-in performance counters (queue depth, task counts, step latencies). |
 
+### Event.meta on FINISH
+
+When a pipeline uses structured metadata (`Meta` on context), run-scope meta is attached to the FINISH event's `meta` field (not the `PipelineEndData` payload). This makes `Event.meta` the universal carrier for scope-appropriate metadata across all event types:
+
+- **STEP_END / STEP_ERROR**: `event.meta` carries step-scoped user data plus `framework` timing (`duration_s`, `attempt`, `status`).
+- **FINISH**: `event.meta` carries run-scoped user data (from `ctx.meta.run`).
+
+### Step Meta Framework Timing
+
+Every `STEP_END` and `STEP_ERROR` event includes a `framework` key in `event.meta` with automatic timing data:
+
+```json
+{
+  "data": {"model": "gpt-4"},
+  "metrics": {"latency": [1.5]},
+  "framework": {"duration_s": 0.45, "attempt": 1, "status": "success"}
+}
+```
+
 ## Lineage Tracking
 
 justpipe uses three distinct IDs to provide perfect traceability across nested pipelines and concurrent tasks:

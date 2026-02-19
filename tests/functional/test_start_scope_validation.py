@@ -4,15 +4,10 @@ from typing import Any
 
 import pytest
 
-from justpipe import (
-    DefinitionError,
-    EventType,
-    Pipe,
-    PipelineValidationWarning,
-)
+from justpipe import DefinitionError, EventType, Pipe
+from justpipe.types import PipelineValidationWarning
 
 
-@pytest.mark.asyncio
 async def test_start_scope_missing_all_barrier_parent_strict_errors() -> None:
     pipe: Pipe[dict[str, Any], None] = Pipe(strict=True)
 
@@ -37,7 +32,6 @@ async def test_start_scope_missing_all_barrier_parent_strict_errors() -> None:
             pass
 
 
-@pytest.mark.asyncio
 async def test_start_scope_missing_all_barrier_parent_non_strict_warns() -> None:
     pipe: Pipe[dict[str, Any], None] = Pipe(strict=False)
 

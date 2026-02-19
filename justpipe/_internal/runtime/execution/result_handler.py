@@ -5,13 +5,15 @@ from collections.abc import AsyncGenerator
 from justpipe.types import (
     Event,
     EventType,
+    Raise,
     Retry,
     Skip,
-    Raise,
     Stop,
     Suspend,
+    _Map,
+    _Next,
+    _Run,
 )
-from justpipe._internal.types import _Map, _Next, _Run
 from justpipe._internal.runtime.orchestration.control import StepCompleted
 from justpipe._internal.shared.utils import _resolve_name
 
@@ -44,15 +46,17 @@ class _ResultHandler:
         res = item.result
 
         if isinstance(res, Raise):
-            if res.exception:
-                await self._failure_handler.handle_failure(
-                    item.name,
-                    item.owner,
-                    res.exception,
-                    item.payload,
-                    state,
-                    context,
-                )
+            error = res.exception or RuntimeError(
+                f"Step '{item.name}' returned Raise() without an exception"
+            )
+            await self._failure_handler.handle_failure(
+                item.name,
+                item.owner,
+                error,
+                item.payload,
+                state,
+                context,
+            )
             return
 
         if isinstance(res, Skip):

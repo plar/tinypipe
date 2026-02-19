@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 
 from justpipe.cli.formatting import format_timestamp
 from justpipe.cli.registry import AnnotatedRun, PipelineRegistry
+from justpipe.storage.interface import MAX_QUERY_LIMIT
 from justpipe.types import PipelineTerminalStatus
 
 
@@ -26,7 +27,7 @@ def cleanup_command(
     dry_run: bool = False,
 ) -> None:
     """Clean up old pipeline runs."""
-    all_runs = registry.list_all_runs(limit=10000)
+    all_runs = registry.list_all_runs(limit=MAX_QUERY_LIMIT)
 
     if not all_runs:
         print("No runs found")
@@ -34,7 +35,7 @@ def cleanup_command(
 
     # Calculate cutoff datetime if older_than_days specified
     cutoff: datetime | None = None
-    if older_than_days:
+    if older_than_days is not None:
         cutoff = datetime.now() - timedelta(days=older_than_days)
 
     # Sort by start time (newest first)
@@ -133,6 +134,6 @@ def cleanup_command(
     if failed_count > 0:
         print(f"Failed to delete {failed_count} run(s)")
 
-    remaining = registry.list_all_runs(limit=10000)
+    remaining = registry.list_all_runs(limit=MAX_QUERY_LIMIT)
     print()
     print(f"Remaining: {len(remaining)} run(s)")

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 from collections.abc import Mapping
 
 from justpipe._internal.definition.steps import _BaseStep
-from justpipe._internal.types import InjectionMetadataMap
+from justpipe.types import InjectionMetadataMap
 from justpipe._internal.graph.dependency_graph import _DependencyGraph
 
 

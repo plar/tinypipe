@@ -50,8 +50,8 @@ class _RuntimeMetricsRecorder:
         self._tokens = 0
         self._suspends = 0
 
-        # Step timing
-        self._step_start_times: dict[str, float] = {}
+        # Step timing (keyed by invocation_id to handle concurrent map workers)
+        self._step_start_times: dict[str, tuple[str, float]] = {}  # inv_id -> (stage, ts)
         self._step_stats: dict[str, _StepAccumulator] = defaultdict(_StepAccumulator)
 
         # Barriers
@@ -104,12 +104,15 @@ class _RuntimeMetricsRecorder:
             self._suspends += 1
 
         elif event.type == EventType.STEP_START:
-            self._step_start_times[event.stage] = event.timestamp
+            key = event.invocation_id or event.stage
+            self._step_start_times[key] = (event.stage, event.timestamp)
         elif event.type == EventType.STEP_END:
-            start = self._step_start_times.pop(event.stage, None)
-            if start is not None:
+            key = event.invocation_id or event.stage
+            entry = self._step_start_times.pop(key, None)
+            if entry is not None:
+                stage, start = entry
                 duration = max(0.0, event.timestamp - start)
-                step_stats = self._step_stats[event.stage]
+                step_stats = self._step_stats[stage]
                 step_stats.count += 1
                 step_stats.total += duration
                 step_stats.min = min(step_stats.min, duration)
@@ -121,11 +124,13 @@ class _RuntimeMetricsRecorder:
             barrier_stats.waits += 1
 
         elif event.type == EventType.BARRIER_RELEASE:
-            start = self._barrier_starts.pop(event.stage, None)
+            barrier_start: float | None = self._barrier_starts.pop(
+                event.stage, None
+            )
             barrier_stats = self._barrier_stats[event.stage]
             barrier_stats.releases += 1
-            if start is not None:
-                duration = max(0.0, event.timestamp - start)
+            if barrier_start is not None:
+                duration = max(0.0, event.timestamp - barrier_start)
                 barrier_stats.total += duration
                 barrier_stats.max = max(barrier_stats.max, duration)
 
@@ -143,7 +148,7 @@ class _RuntimeMetricsRecorder:
             if event.stage in self._barrier_starts:
                 barrier_stats = self._barrier_stats[event.stage]
                 barrier_stats.timeouts += 1
-                self._barrier_starts.pop(event.stage, None)
+                del self._barrier_starts[event.stage]
 
     # --- Snapshot ----------------------------------------------------------------
     def snapshot(self) -> RuntimeMetrics:

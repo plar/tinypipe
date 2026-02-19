@@ -8,10 +8,14 @@ from collections.abc import Callable
 from justpipe.types import (
     CancellationToken,
     EventType,
+    HookSpec,
+    InjectionMetadataMap,
     NodeKind,
     Suspend,
+    _Map,
+    _Next,
+    _Run,
 )
-from justpipe._internal.types import HookSpec, InjectionMetadataMap, _Map, _Next, _Run
 from justpipe._internal.shared.utils import _resolve_injection_kwargs
 
 if TYPE_CHECKING:
@@ -68,8 +72,6 @@ class _StepInvoker(Generic[StateT, ContextT]):
         # Input validation
         if not name:
             raise ValueError("Step name cannot be empty")
-        if orchestrator is None:
-            raise ValueError("Orchestrator cannot be None")
         if payload is not None and not isinstance(payload, dict):
             raise TypeError(f"Payload must be a dict, got {type(payload).__name__}")
 

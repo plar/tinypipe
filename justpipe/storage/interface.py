@@ -8,6 +8,9 @@ from typing import Protocol
 
 from justpipe.types import EventType, PipelineTerminalStatus
 
+MAX_QUERY_LIMIT = 10_000
+"""Upper bound for 'fetch all' queries where exact count is not needed."""
+
 
 @dataclass(frozen=True)
 class RunRecord:
@@ -20,7 +23,7 @@ class RunRecord:
     status: PipelineTerminalStatus
     error_message: str | None = None
     error_step: str | None = None
-    user_meta: str | None = None  # JSON string or None
+    run_meta: str | None = None  # JSON string or None
 
 
 @dataclass(frozen=True)
@@ -73,6 +76,18 @@ class StorageBackend(Protocol):
         self, run_id_prefix: str, limit: int = 10
     ) -> list[RunRecord]:
         """Find runs whose ID starts with the given prefix."""
+        ...
+
+    def append_events(self, run_id: str, events: list[str]) -> None:
+        """Append events to an existing run (incremental flush).
+
+        Called periodically during long-running pipelines to avoid
+        unbounded memory. Events use ``INSERT OR IGNORE`` semantics
+        so duplicate seq values are silently skipped.
+
+        This method is optional. The default implementation is a no-op;
+        backends that support incremental persistence should override it.
+        """
         ...
 
     def delete_run(self, run_id: str) -> bool:

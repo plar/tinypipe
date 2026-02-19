@@ -12,7 +12,6 @@ async def process_data(data: str) -> str:
     return data.upper()
 
 
-@pytest.mark.asyncio
 async def test_streaming_execution(state: Any) -> None:
     pipe: Pipe[Any, Any] = Pipe()
     tokens: list[Any] = []
@@ -28,7 +27,6 @@ async def test_streaming_execution(state: Any) -> None:
     assert tokens == ["a", "b"]
 
 
-@pytest.mark.asyncio
 async def test_concurrent_token_streaming() -> None:
     """Parallel steps should both have their tokens collected."""
     pipe: Pipe[Any, Any] = Pipe()
@@ -56,7 +54,6 @@ async def test_concurrent_token_streaming() -> None:
     assert "token_from_b" in token_data
 
 
-@pytest.mark.asyncio
 async def test_context_none_handling() -> None:
     """Steps and hooks should handle context=None gracefully."""
     pipe: Pipe[Any, Any] = Pipe()
@@ -84,7 +81,6 @@ async def test_context_none_handling() -> None:
     assert len(error_events) == 0
 
 
-@pytest.mark.asyncio
 async def test_etl_pipeline_simulation() -> None:
     """Simulate a simple ETL pipeline."""
 
@@ -120,7 +116,6 @@ async def test_etl_pipeline_simulation() -> None:
     assert stages == ["extract", "transform", "load"]
 
 
-@pytest.mark.asyncio
 async def test_subpipe_event_origin_run_lineage_is_preserved() -> None:
     """Child events keep a stable origin_run_id when forwarded to parent stream."""
     sub_pipe: Pipe[dict[str, Any], None] = Pipe()
@@ -160,7 +155,6 @@ async def test_subpipe_event_origin_run_lineage_is_preserved() -> None:
     assert {event.run_id for event in child_step_events} == {parent_run_id}
 
 
-@pytest.mark.asyncio
 async def test_run_validation_rejects_unknown_target() -> None:
     pipe: Pipe[Any, Any] = Pipe()
 
@@ -173,7 +167,6 @@ async def test_run_validation_rejects_unknown_target() -> None:
             pass
 
 
-@pytest.mark.asyncio
 async def test_run_validation_accepts_valid_pipe() -> None:
     pipe: Pipe[Any, Any] = Pipe()
 
@@ -192,7 +185,6 @@ async def test_run_validation_accepts_valid_pipe() -> None:
     assert len(events) > 0
 
 
-@pytest.mark.asyncio
 async def test_run_validation_rejects_no_entry_cycle() -> None:
     pipe: Pipe[Any, Any] = Pipe()
 

@@ -1,8 +1,36 @@
+import os
+from pathlib import Path
 from typing import Any
 from collections.abc import Callable, Iterable
 
-from justpipe.types import CancellationToken
-from justpipe._internal.types import InjectionMetadata, InjectionSource
+from justpipe.types import CancellationToken, InjectionMetadata, InjectionSource
+
+
+def format_duration(seconds: float | None) -> str:
+    """Format duration for display.
+
+    Shared by CLI formatting and timeline visualization.
+    """
+    if seconds is None:
+        return "-"
+    if seconds < 1:
+        return f"{seconds * 1000:.0f}ms"
+    if seconds < 60:
+        return f"{seconds:.1f}s"
+    if seconds < 3600:
+        return f"{seconds / 60:.1f}m"
+    return f"{seconds / 3600:.1f}h"
+
+
+def resolve_storage_path() -> Path:
+    """Resolve the base storage directory from env or default.
+
+    Reads JUSTPIPE_STORAGE_PATH env var, falls back to ~/.justpipe.
+    """
+    raw = os.getenv("JUSTPIPE_STORAGE_PATH")
+    if raw:
+        return Path(raw).expanduser()
+    return Path.home() / ".justpipe"
 
 
 def _resolve_name(target: str | Callable[..., Any]) -> str:

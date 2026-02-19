@@ -6,10 +6,10 @@ from collections.abc import Callable, Iterator
 from justpipe.types import (
     BarrierType,
     DefinitionError,
+    InjectionMetadataMap,
     Stop,
     StepInfo,
 )
-from justpipe._internal.types import InjectionMetadataMap
 from justpipe._internal.shared.utils import _resolve_name
 from justpipe._internal.definition.steps import (
     _StandardStep,

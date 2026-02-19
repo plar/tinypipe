@@ -6,9 +6,11 @@ from typing import Any, TYPE_CHECKING
 from justpipe.types import (
     Event,
     EventType,
+    InjectionMetadataMap,
+    InjectionSource,
     NodeKind,
+    _Map,
 )
-from justpipe._internal.types import InjectionMetadataMap, InjectionSource, _Map
 from justpipe._internal.runtime.orchestration.control import (
     InvocationContext,
     RuntimeEvent,

@@ -3,20 +3,19 @@
 This example demonstrates justpipe's comprehensive observability features:
 1. Real-time logging with EventLogger
 2. Automatic persistence with persist=True
-3. Performance metrics with MetricsCollector
+3. RuntimeMetrics from FINISH event for performance analysis
 4. Timeline visualization
 5. CLI tools for querying and analysis
 """
 
 import asyncio
-import time
 from dataclasses import dataclass
 from pathlib import Path
 
-from justpipe import Pipe
+from justpipe import Pipe, EventType
+from justpipe.types import PipelineEndData
 from justpipe.observability import (
     EventLogger,
-    MetricsCollector,
     TimelineVisualizer,
 )
 
@@ -36,10 +35,6 @@ pipe = Pipe(DocumentState, name="document_processor", persist=True)
 
 # Real-time logging
 pipe.add_observer(EventLogger(level="INFO", sink=EventLogger.stderr_sink()))
-
-# Metrics collection
-metrics = MetricsCollector(clock=time.time)
-pipe.add_observer(metrics)
 
 # Timeline visualization
 timeline = TimelineVisualizer()
@@ -94,9 +89,11 @@ async def main():
     print(f"Input: '{state.raw}'")
     print()
 
-    # Run the pipeline
+    # Run the pipeline — capture RuntimeMetrics from FINISH event
+    end_data: PipelineEndData | None = None
     async for event in pipe.run(state):
-        pass
+        if event.type == EventType.FINISH:
+            end_data = event.payload
 
     print()
     print("=" * 70)
@@ -111,15 +108,17 @@ async def main():
     print(f"  Sentiment: {state.sentiment}")
     print()
 
-    # Show performance metrics
-    print("Performance Metrics:")
-    bottleneck = metrics.get_bottleneck()
-    bottleneck_pct = metrics.get_bottleneck_percentage()
-    data = metrics.to_dict()
-    print(f"  Total Duration: {data['total_duration']:.3f}s")
-    print(f"  Steps Executed: {data['steps_executed']}")
-    print(f"  Bottleneck: {bottleneck} ({bottleneck_pct:.1f}% of time)")
-    print()
+    # Show performance metrics from RuntimeMetrics
+    if end_data and end_data.metrics:
+        rm = end_data.metrics
+        print("Performance Metrics (RuntimeMetrics):")
+        print(f"  Total Duration: {end_data.duration_s:.3f}s")
+        print(f"  Steps Executed: {len(rm.step_latency)}")
+        print(f"  Tokens: {rm.tokens}")
+        print()
+    else:
+        print("No metrics available.")
+        print()
 
     # Save timeline visualization
     timeline_file = Path(__file__).parent / "timeline.txt"

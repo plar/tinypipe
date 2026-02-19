@@ -38,7 +38,6 @@ def _single_step_config() -> RunnerConfig[Any, Any]:
     return single_step_config()
 
 
-@pytest.mark.asyncio
 async def test_event_stream_cancelled_path_marks_log() -> None:
     runner = build_runner(_empty_config())
 
@@ -54,7 +53,6 @@ async def test_event_stream_cancelled_path_marks_log() -> None:
     assert runner._ctx.log.cancelled is True
 
 
-@pytest.mark.asyncio
 async def test_event_stream_runtime_error_records_infra_failure() -> None:
     runner = build_runner(_empty_config())
 
@@ -71,7 +69,6 @@ async def test_event_stream_runtime_error_records_infra_failure() -> None:
     assert runner._ctx.log.failures[0].kind is FailureKind.INFRA
 
 
-@pytest.mark.asyncio
 async def test_shutdown_closing_suppresses_shutdown_events() -> None:
     runner = build_runner(_empty_config())
     runner._ctx.log.mark_closing()
@@ -91,7 +88,6 @@ async def test_shutdown_closing_suppresses_shutdown_events() -> None:
     assert calls["count"] == 1
 
 
-@pytest.mark.asyncio
 async def test_startup_phase_uses_explicit_start_target_and_notifies_start() -> None:
     runner = build_runner(_single_step_config())
     runner._ctx.state = {"value": 1}
@@ -120,7 +116,6 @@ async def test_startup_phase_uses_explicit_start_target_and_notifies_start() -> 
     )
 
 
-@pytest.mark.asyncio
 async def test_startup_phase_records_startup_failure() -> None:
     runner = build_runner(_single_step_config())
     runner._ctx.state = {"value": 1}
@@ -144,7 +139,6 @@ async def test_startup_phase_records_startup_failure() -> None:
     assert isinstance(failure.error, RuntimeError)
 
 
-@pytest.mark.asyncio
 async def test_startup_phase_no_steps_records_validation_failure() -> None:
     runner = build_runner(_empty_config())
     runner._ctx.state = {}

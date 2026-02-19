@@ -6,7 +6,7 @@ import json
 from datetime import datetime, timedelta
 from typing import Any
 
-from justpipe.cli.formatting import resolve_or_exit
+from justpipe.cli.formatting import parse_run_meta, resolve_or_exit
 from justpipe.cli.registry import PipelineRegistry
 
 
@@ -60,13 +60,7 @@ def export_command(
 
     events = backend.get_events(run.run_id)
 
-    # Parse user_meta JSON
-    user_meta: Any = None
-    if run.user_meta:
-        try:
-            user_meta = json.loads(run.user_meta)
-        except json.JSONDecodeError:
-            user_meta = run.user_meta
+    run_meta = parse_run_meta(run.run_meta)
 
     export_data: dict[str, Any] = {
         "run": {
@@ -81,7 +75,7 @@ def export_command(
             ),
             "error_message": run.error_message,
             "error_step": run.error_step,
-            "user_meta": user_meta,
+            "run_meta": run_meta,
         },
         "events": _export_events(events),
         "event_count": len(events),

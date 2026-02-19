@@ -7,7 +7,6 @@ from justpipe import Pipe
 
 @pytest.mark.parametrize("state_arg", ["s", "state"])
 @pytest.mark.parametrize("ctx_arg", ["c", "ctx", "context"])
-@pytest.mark.asyncio
 async def test_smart_injection_fallbacks(
     state: Any, context: Any, state_arg: str, ctx_arg: str
 ) -> None:
@@ -32,7 +31,6 @@ async def dynamic_step({state_arg}, {ctx_arg}):
         pass
 
 
-@pytest.mark.asyncio
 async def test_type_aware_injection(state: Any, context: Any) -> None:
     state_type = type(state)
     context_type = type(context)
@@ -47,7 +45,6 @@ async def test_type_aware_injection(state: Any, context: Any) -> None:
         pass
 
 
-@pytest.mark.asyncio
 async def test_type_injection_with_subclass() -> None:
     class BaseState:
         pass

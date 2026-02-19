@@ -55,3 +55,6 @@ class StepCompleted:
 
     # True when a terminal step event (STEP_ERROR) was already emitted upstream.
     already_terminal: bool = False
+
+    # Per-invocation step meta snapshot (from ctx.meta.step).
+    step_meta: dict[str, Any] | None = None

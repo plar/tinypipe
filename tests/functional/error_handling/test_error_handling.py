@@ -7,7 +7,6 @@ from collections.abc import AsyncGenerator
 from justpipe import Pipe, EventType, Retry, Skip
 
 
-@pytest.mark.asyncio
 async def test_step_level_substitution() -> None:
     pipe: Pipe[dict[str, Any], None] = Pipe()
 
@@ -30,7 +29,6 @@ async def test_step_level_substitution() -> None:
     assert state.get("received") == "fallback_result"
 
 
-@pytest.mark.asyncio
 async def test_step_level_retry() -> None:
     pipe: Pipe[dict[str, Any], None] = Pipe()
 
@@ -56,7 +54,6 @@ async def test_step_level_retry() -> None:
     assert tokens == ["success"]
 
 
-@pytest.mark.asyncio
 async def test_global_handler() -> None:
     pipe: Pipe[dict[str, Any], None] = Pipe()
 
@@ -78,7 +75,6 @@ async def test_global_handler() -> None:
     assert state.get("global_caught") == "fail_me"
 
 
-@pytest.mark.asyncio
 async def test_skip_pruning() -> None:
     pipe: Pipe[dict[str, Any], None] = Pipe()
 
@@ -97,7 +93,6 @@ async def test_skip_pruning() -> None:
     assert state["ran"] is False
 
 
-@pytest.mark.asyncio
 async def test_default_logging(caplog: pytest.LogCaptureFixture) -> None:
     pipe: Pipe[dict[str, Any], None] = Pipe()
 
@@ -114,10 +109,9 @@ async def test_default_logging(caplog: pytest.LogCaptureFixture) -> None:
     assert "State: {}" in caplog.text
 
 
-@pytest.mark.asyncio
 async def test_step_redirect_via_next() -> None:
     pipe: Pipe[dict[str, Any], None] = Pipe()
-    from justpipe._internal.types import _Next
+    from justpipe.types import _Next
 
     async def handle_error(error: Exception, state: dict[str, Any]) -> _Next:
         return _Next("recovery")
@@ -137,7 +131,6 @@ async def test_step_redirect_via_next() -> None:
     assert state.get("recovered") is True
 
 
-@pytest.mark.asyncio
 async def test_error_handler_failure() -> None:
     """Test when the error handler itself raises an exception."""
     pipe: Pipe[None, None] = Pipe()
@@ -162,7 +155,6 @@ async def test_error_handler_failure() -> None:
     assert "Handler crashed" in str(error_events[0].payload)
 
 
-@pytest.mark.asyncio
 async def test_error_handler_injection() -> None:
     pipe: Pipe[str, None] = Pipe()
     captured: dict[str, Any] = {}
@@ -184,7 +176,6 @@ async def test_error_handler_injection() -> None:
     assert captured["state"] == "initial_state"
 
 
-@pytest.mark.asyncio
 async def test_step_handler_fail_to_global() -> None:
     """Test step handler failing and falling back to global handler."""
     pipe: Pipe[None, None] = Pipe()
@@ -211,7 +202,6 @@ async def test_step_handler_fail_to_global() -> None:
     assert str(captured[0]) == "Step handler failed"
 
 
-@pytest.mark.asyncio
 async def test_streaming_exception_midstream() -> None:
     """Exception mid-stream should yield ERROR but collect prior tokens."""
     pipe: Pipe[Any, Any] = Pipe()
@@ -236,7 +226,6 @@ async def test_streaming_exception_midstream() -> None:
     assert events[-1].type == EventType.FINISH
 
 
-@pytest.mark.asyncio
 async def test_error_handler_sync_function() -> None:
     """Test error handler works with synchronous functions."""
     pipe: Pipe[dict[str, int], None] = Pipe()
@@ -255,7 +244,6 @@ async def test_error_handler_sync_function() -> None:
     assert handler_called, "Synchronous error handler should have been called"
 
 
-@pytest.mark.asyncio
 async def test_error_handler_async_function() -> None:
     """Test error handler works with async functions."""
     pipe: Pipe[dict[str, int], None] = Pipe()
@@ -275,7 +263,6 @@ async def test_error_handler_async_function() -> None:
     assert handler_called, "Async error handler should have been called"
 
 
-@pytest.mark.asyncio
 async def test_error_handler_sync_returning_awaitable() -> None:
     """Test error handler works with sync functions that return awaitables.
 

@@ -7,7 +7,6 @@ from justpipe.types import Event, EventType
 PIPE_META = ObserverMeta(pipe_name="barrier_pipe")
 
 
-@pytest.mark.asyncio
 async def test_wait_then_release_warns_on_slow_barrier() -> None:
     records: list[BarrierDebugRecord] = []
     debugger = BarrierDebugger(warn_after=0.5, clock=lambda: 2.0, sink=records.append)
@@ -39,7 +38,6 @@ async def test_wait_then_release_warns_on_slow_barrier() -> None:
     assert "join" in debugger.warned_barriers
 
 
-@pytest.mark.asyncio
 async def test_hang_warning_emits_structured_details() -> None:
     records: list[BarrierDebugRecord] = []
     debugger = BarrierDebugger(warn_after=0.1, clock=lambda: 12.0, sink=records.append)
@@ -77,7 +75,6 @@ async def test_hang_warning_emits_structured_details() -> None:
     assert "w2: never started" in records[0].message
 
 
-@pytest.mark.asyncio
 async def test_pipeline_end_and_error_report_unresolved_and_clear_state() -> None:
     records: list[BarrierDebugRecord] = []
     debugger = BarrierDebugger(warn_after=1.0, clock=lambda: 10.0, sink=records.append)
@@ -104,7 +101,6 @@ async def test_pipeline_end_and_error_report_unresolved_and_clear_state() -> Non
     assert debugger.waiting_barriers == {}
 
 
-@pytest.mark.asyncio
 async def test_map_complete_removes_indexed_worker_entries() -> None:
     debugger = BarrierDebugger(warn_after=1.0, clock=lambda: 10.0, sink=None)
     debugger.worker_activity = {

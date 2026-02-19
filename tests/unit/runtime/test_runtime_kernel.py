@@ -1,12 +1,10 @@
 import asyncio
 
-import pytest
 
 from justpipe._internal.runtime.orchestration.runtime_kernel import _RuntimeKernel
 from justpipe._internal.shared.execution_tracker import _ExecutionTracker
 
 
-@pytest.mark.asyncio
 async def test_submit_records_queue_depth() -> None:
     tracker = _ExecutionTracker()
     queue: asyncio.Queue[object] = asyncio.Queue(maxsize=2)
@@ -19,7 +17,6 @@ async def test_submit_records_queue_depth() -> None:
     assert queue_depths == [1]
 
 
-@pytest.mark.asyncio
 async def test_spawn_returns_none_without_task_group() -> None:
     tracker = _ExecutionTracker()
     queue: asyncio.Queue[object] = asyncio.Queue()
@@ -33,7 +30,6 @@ async def test_spawn_returns_none_without_task_group() -> None:
     assert tracker.total_active_tasks == 0
 
 
-@pytest.mark.asyncio
 async def test_spawn_uses_task_group_and_records_active_tasks() -> None:
     tracker = _ExecutionTracker()
     queue: asyncio.Queue[object] = asyncio.Queue()

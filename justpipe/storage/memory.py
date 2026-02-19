@@ -22,7 +22,15 @@ class InMemoryBackend:
 
     def save_run(self, run: RunRecord, events: list[str]) -> None:
         self._runs[run.run_id] = run
-        self._events[run.run_id] = list(events)
+        if events:
+            existing = self._events.get(run.run_id, [])
+            existing.extend(events)
+            self._events[run.run_id] = existing
+        # If events is empty, keep any previously appended events
+
+    def append_events(self, run_id: str, events: list[str]) -> None:
+        existing = self._events.setdefault(run_id, [])
+        existing.extend(events)
 
     def get_run(self, run_id: str) -> RunRecord | None:
         return self._runs.get(run_id)
@@ -49,13 +57,17 @@ class InMemoryBackend:
         for seq, data_str in enumerate(raw, start=1):
             parsed = json.loads(data_str)
             et = parsed.get("type", "")
-            if event_type is not None and EventType(et) != event_type:
+            try:
+                event_type_val = EventType(et)
+            except ValueError:
+                continue
+            if event_type is not None and event_type_val != event_type:
                 continue
             result.append(
                 StoredEvent(
                     seq=seq,
                     timestamp=datetime.fromtimestamp(parsed.get("timestamp", 0)),
-                    event_type=EventType(et),
+                    event_type=event_type_val,
                     step_name=parsed.get("stage", ""),
                     data=data_str,
                 )

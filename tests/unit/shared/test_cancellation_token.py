@@ -16,7 +16,6 @@ def test_cancellation_token_is_cancelled() -> None:
     assert cancel.reason == "Test cancellation"
 
 
-@pytest.mark.asyncio
 async def test_cancellation_token_checkpoint_before_cancel() -> None:
     cancel = CancellationToken()
 
@@ -24,7 +23,6 @@ async def test_cancellation_token_checkpoint_before_cancel() -> None:
     await cancel.checkpoint()
 
 
-@pytest.mark.asyncio
 async def test_cancellation_token_checkpoint_after_cancel() -> None:
     cancel = CancellationToken()
     cancel.cancel("Already cancelled")

@@ -82,7 +82,7 @@ def test_get_registry_returns_pipeline_registry(
 ) -> None:
     from justpipe.cli.registry import PipelineRegistry
 
-    monkeypatch.setattr(cli_main, "get_storage_dir", lambda: tmp_path)
+    monkeypatch.setattr(cli_main, "resolve_storage_path", lambda: tmp_path)
 
     registry = cli_main.get_registry()
     assert isinstance(registry, PipelineRegistry)

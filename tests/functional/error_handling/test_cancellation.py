@@ -1,7 +1,6 @@
 """Functional tests for pipeline cancellation."""
 
 import asyncio
-import pytest
 from typing import Any
 
 from justpipe import Pipe, EventType
@@ -14,7 +13,6 @@ from justpipe.types import (
 )
 
 
-@pytest.mark.asyncio
 async def test_cancellation_token_injection() -> None:
     """Test that cancellation token is injected into steps."""
     cancel = CancellationToken()
@@ -31,7 +29,6 @@ async def test_cancellation_token_injection() -> None:
     assert token_received is cancel
 
 
-@pytest.mark.asyncio
 async def test_pipeline_emits_cancelled_event_and_terminal_status() -> None:
     """Cancellation via token checkpoint should emit CANCELLED and terminal CANCELLED."""
     cancel = CancellationToken()
@@ -54,7 +51,6 @@ async def test_pipeline_emits_cancelled_event_and_terminal_status() -> None:
     assert finish.payload.failure_kind == FailureKind.NONE
 
 
-@pytest.mark.asyncio
 async def test_cancellation_in_map_workers() -> None:
     """Test that cancellation works in map workers via checkpoint."""
     cancel = CancellationToken()
@@ -101,7 +97,31 @@ async def test_cancellation_in_map_workers() -> None:
     assert len(cancelled_or_error) >= 1
 
 
-@pytest.mark.asyncio
+async def test_cancelled_step_does_not_emit_step_error() -> None:
+    """A cancelled step should only emit CANCELLED, never STEP_ERROR."""
+    cancel = CancellationToken()
+    cancel.cancel("user_cancelled")
+    pipe: Pipe[Any, Any] = Pipe(cancellation_token=cancel)
+
+    @pipe.step()
+    async def should_cancel(state: Any, token: CancellationToken) -> None:
+        await token.checkpoint()
+
+    events = [e async for e in pipe.run(None)]
+
+    cancelled_events = [e for e in events if e.type == EventType.CANCELLED]
+    step_errors = [
+        e
+        for e in events
+        if e.type == EventType.STEP_ERROR and e.stage == "should_cancel"
+    ]
+
+    assert len(cancelled_events) == 1
+    assert len(step_errors) == 0, (
+        f"STEP_ERROR should not be emitted for a cancelled step, got: {step_errors}"
+    )
+
+
 async def test_cancellation_without_checkpoint() -> None:
     """Test that cancellation without checkpoints doesn't stop execution."""
     cancel = CancellationToken()

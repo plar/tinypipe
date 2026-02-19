@@ -1,11 +1,9 @@
-import pytest
 import asyncio
 
 from justpipe import Pipe
 from justpipe.types import RuntimeMetrics
 
 
-@pytest.mark.asyncio
 async def test_finish_metrics_basic() -> None:
     pipe: Pipe[dict[str, int], dict[str, int]] = Pipe(dict, dict)
 
@@ -28,7 +26,6 @@ async def test_finish_metrics_basic() -> None:
     assert metrics.queue.max_depth >= 1
 
 
-@pytest.mark.asyncio
 async def test_finish_metrics_map_workers() -> None:
     pipe: Pipe[dict[str, int], dict[str, int]] = Pipe(dict, dict)
 
@@ -56,7 +53,6 @@ async def test_finish_metrics_map_workers() -> None:
     assert metrics.maps.peak_workers >= 2
 
 
-@pytest.mark.asyncio
 async def test_finish_metrics_map_peak_workers_respects_throttle() -> None:
     pipe: Pipe[dict[str, int], dict[str, int]] = Pipe(dict, dict)
 

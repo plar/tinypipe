@@ -10,7 +10,6 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
-import pytest
 
 from justpipe import EventType, Pipe, Suspend
 from justpipe.types import (
@@ -118,7 +117,6 @@ def assert_invariants(events: list[Any]) -> None:
 # ===========================================================================
 
 
-@pytest.mark.asyncio
 async def test_linear_pipeline_event_order() -> None:
     """Linear a -> b produces START, STEP_START(a), STEP_END(a), STEP_START(b), STEP_END(b), FINISH(success)."""
     pipe: Pipe[Any, Any] = Pipe()
@@ -153,7 +151,6 @@ async def test_linear_pipeline_event_order() -> None:
 # ===========================================================================
 
 
-@pytest.mark.asyncio
 async def test_parallel_fan_out_fan_in_event_order() -> None:
     """Root fans out to a and b (parallel), then joins at 'join'."""
     pipe: Pipe[Any, Any] = Pipe()
@@ -217,7 +214,6 @@ async def test_parallel_fan_out_fan_in_event_order() -> None:
 # ===========================================================================
 
 
-@pytest.mark.asyncio
 async def test_map_operation_event_order() -> None:
     """Map step fans out to workers, then MAP_COMPLETE fires."""
     pipe: Pipe[Any, Any] = Pipe()
@@ -268,7 +264,6 @@ async def test_map_operation_event_order() -> None:
 # ===========================================================================
 
 
-@pytest.mark.asyncio
 async def test_step_error_event_order() -> None:
     """Step error: START, STEP_START(a), STEP_ERROR(a), FINISH(failed)."""
     pipe: Pipe[Any, Any] = Pipe()
@@ -295,7 +290,6 @@ async def test_step_error_event_order() -> None:
 # ===========================================================================
 
 
-@pytest.mark.asyncio
 async def test_timeout_event_order() -> None:
     """Timeout: START, STEP_START(slow), TIMEOUT, FINISH(timeout)."""
     pipe: Pipe[Any, Any] = Pipe()
@@ -321,7 +315,6 @@ async def test_timeout_event_order() -> None:
 # ===========================================================================
 
 
-@pytest.mark.asyncio
 async def test_suspend_event_order() -> None:
     """Suspend: START, STEP_START(a), SUSPEND, STEP_END(a), FINISH(success)."""
     pipe: Pipe[Any, Any] = Pipe()
@@ -351,7 +344,6 @@ async def test_suspend_event_order() -> None:
 # ===========================================================================
 
 
-@pytest.mark.asyncio
 async def test_client_close_event_order() -> None:
     """Client close mid-stream: partial events, then no FINISH visible."""
     pipe: Pipe[Any, Any] = Pipe()
@@ -388,7 +380,6 @@ async def test_client_close_event_order() -> None:
 # ===========================================================================
 
 
-@pytest.mark.asyncio
 async def test_invariants_empty_pipeline() -> None:
     """Empty pipeline (no steps) still satisfies invariants."""
     pipe: Pipe[Any, Any] = Pipe()
@@ -399,7 +390,6 @@ async def test_invariants_empty_pipeline() -> None:
     assert _finish(events).payload.status == PipelineTerminalStatus.FAILED
 
 
-@pytest.mark.asyncio
 async def test_invariants_cancel_via_token() -> None:
     """Cancellation via token still satisfies invariants."""
     cancel = CancellationToken()
@@ -415,7 +405,6 @@ async def test_invariants_cancel_via_token() -> None:
     assert _finish(events).payload.status == PipelineTerminalStatus.CANCELLED
 
 
-@pytest.mark.asyncio
 async def test_invariants_multi_step_chain() -> None:
     """Multi-step chain satisfies invariants."""
     pipe: Pipe[Any, Any] = Pipe()
@@ -438,7 +427,6 @@ async def test_invariants_multi_step_chain() -> None:
     assert _stages(events, EventType.STEP_START) == ["a", "b", "c"]
 
 
-@pytest.mark.asyncio
 async def test_invariants_error_in_second_step() -> None:
     """Error in second step of a chain: first step has STEP_END, second has STEP_ERROR."""
     pipe: Pipe[Any, Any] = Pipe()

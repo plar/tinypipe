@@ -34,22 +34,18 @@ def test_format_timestamp() -> None:
     assert format_timestamp(dt) == "2024-01-15 12:30:45"
 
 
-def test_format_status_success() -> None:
-    result = format_status(PipelineTerminalStatus.SUCCESS)
-    assert "green" in result
-    assert "success" in result
-
-
-def test_format_status_failed() -> None:
-    result = format_status(PipelineTerminalStatus.FAILED)
-    assert "red" in result
-    assert "failed" in result
-
-
-def test_format_status_timeout() -> None:
-    result = format_status(PipelineTerminalStatus.TIMEOUT)
-    assert "yellow" in result
-    assert "timeout" in result
+@pytest.mark.parametrize(
+    ("status", "color", "text"),
+    [
+        pytest.param(PipelineTerminalStatus.SUCCESS, "green", "success", id="success"),
+        pytest.param(PipelineTerminalStatus.FAILED, "red", "failed", id="failed"),
+        pytest.param(PipelineTerminalStatus.TIMEOUT, "yellow", "timeout", id="timeout"),
+    ],
+)
+def test_format_status(status: PipelineTerminalStatus, color: str, text: str) -> None:
+    result = format_status(status)
+    assert color in result
+    assert text in result
 
 
 def test_short_id_truncated() -> None:

@@ -4,22 +4,25 @@ This example demonstrates:
 1. debug=True convenience parameter
 2. EventLogger observer
 3. BarrierDebugger observer
-4. StorageObserver with SQLite backend
+4. persist=True for automatic SQLite persistence
 5. Multiple observers working together
 """
 
 import asyncio
+import os
 import time
 from dataclasses import dataclass
+from pathlib import Path
 
 from justpipe import Pipe
-from justpipe.observability import EventLogger, BarrierDebugger, StorageObserver
-from justpipe.storage import SQLiteStorage
+from justpipe.observability import EventLogger, BarrierDebugger
+from justpipe.storage.sqlite import SQLiteBackend
 
 
 @dataclass
 class State:
     """Example state for document processing pipeline."""
+
     text: str = ""
     words: list = None
     word_counts: dict = None
@@ -40,7 +43,7 @@ async def example_simple_debug():
 
     pipe: Pipe[State, None] = Pipe(name="simple_pipeline", debug=True)
 
-    @pipe.step("parse")
+    @pipe.step("parse", to="count")
     async def parse(state: State):
         state.text = "hello world hello"
         state.words = state.text.split()
@@ -69,7 +72,7 @@ async def example_custom_logger():
     # Add EventLogger with DEBUG level
     pipe.add_observer(EventLogger(level="DEBUG", sink=EventLogger.stderr_sink()))
 
-    @pipe.step("parse")
+    @pipe.step("parse", to="process")
     async def parse(state: State):
         state.text = "hello world"
         state.words = state.text.split()
@@ -84,26 +87,18 @@ async def example_custom_logger():
         pass
 
 
-# Example 3: Storage with SQLite
-async def example_storage():
-    """Store pipeline runs for later analysis."""
+# Example 3: Persistence with persist=True
+async def example_persistence(tmp_dir: str):
+    """Store pipeline runs using persist=True."""
     print("\n" + "=" * 60)
-    print("Example 3: SQLite Storage")
+    print("Example 3: Persistence (persist=True)")
     print("=" * 60)
 
-    # Create storage backend
-    storage = SQLiteStorage("/tmp/justpipe_demo")
-
-    pipe: Pipe[State, None] = Pipe(name="stored_pipeline")
-
-    # Add storage observer
-    storage_obs = StorageObserver(storage, save_initial_state=True)
-    pipe.add_observer(storage_obs)
-
-    # Also add logger for real-time feedback
+    # persist=True writes runs to SQLite under JUSTPIPE_STORAGE_PATH
+    pipe: Pipe[State, None] = Pipe(name="stored_pipeline", persist=True)
     pipe.add_observer(EventLogger(level="INFO", sink=EventLogger.stderr_sink()))
 
-    @pipe.step("parse")
+    @pipe.step("parse", to="count")
     async def parse(state: State):
         state.text = "hello world hello"
         state.words = state.text.split()
@@ -117,22 +112,15 @@ async def example_storage():
     async for event in pipe.run(state):
         pass
 
-    # Get run ID and query storage
-    run_id = storage_obs.get_run_id()
-    print(f"\n✓ Run stored with ID: {run_id}")
-
-    # Query stored run
-    run = await storage.get_run(run_id)
-    print(f"  Status: {run.status}")
-    print(f"  Duration: {run.duration:.3f}s")
-
-    # Query stored events
-    events = await storage.get_events(run_id)
-    print(f"  Events: {len(events)} total")
-
-    # list all runs
-    all_runs = await storage.list_runs()
-    print(f"\n✓ Total runs in storage: {len(all_runs)}")
+    # Query the persisted runs
+    db_files = list(Path(tmp_dir).rglob("runs.db"))
+    if db_files:
+        backend = SQLiteBackend(db_files[0])
+        runs = backend.list_runs()
+        print(f"\n  Runs in storage: {len(runs)}")
+        if runs:
+            print(f"  Latest status: {runs[0].status.value}")
+            print(f"  Duration: {runs[0].duration.total_seconds():.3f}s")
 
 
 # Example 4: Multiple observers
@@ -142,16 +130,13 @@ async def example_multiple_observers():
     print("Example 4: Multiple Observers")
     print("=" * 60)
 
-    storage = SQLiteStorage("/tmp/justpipe_demo")
-
-    pipe: Pipe[State, None] = Pipe(name="multi_observer_pipeline")
+    pipe: Pipe[State, None] = Pipe(name="multi_observer_pipeline", persist=True)
 
     # Add multiple observers
     pipe.add_observer(EventLogger(level="INFO", sink=EventLogger.stderr_sink()))
     pipe.add_observer(BarrierDebugger(warn_after=5.0, clock=time.time))
-    pipe.add_observer(StorageObserver(storage))
 
-    @pipe.step("parse")
+    @pipe.step("parse", to="count")
     async def parse(state: State):
         state.text = "hello world hello python python python"
         state.words = state.text.split()
@@ -175,15 +160,10 @@ async def example_error_handling():
     print("Example 5: Error Handling")
     print("=" * 60)
 
-    storage = SQLiteStorage("/tmp/justpipe_demo")
-
-    pipe: Pipe[State, None] = Pipe(name="error_pipeline")
-
+    pipe: Pipe[State, None] = Pipe(name="error_pipeline", persist=True)
     pipe.add_observer(EventLogger(level="INFO", sink=EventLogger.stderr_sink()))
-    storage_obs = StorageObserver(storage)
-    pipe.add_observer(storage_obs)
 
-    @pipe.step("parse")
+    @pipe.step("parse", to="fail")
     async def parse(state: State):
         state.text = "hello world"
         state.words = state.text.split()
@@ -196,11 +176,7 @@ async def example_error_handling():
     async for event in pipe.run(state):
         pass
 
-    # Check that error was recorded
-    run_id = storage_obs.get_run_id()
-    events = await storage.get_events(run_id)
-    error_events = [e for e in events if e.event_type == "error"]
-    print(f"\n✓ Recorded {len(error_events)} error event(s)")
+    print("\n  Pipeline completed (errors are captured in FINISH event)")
 
 
 async def main():
@@ -209,9 +185,13 @@ async def main():
     print("JUSTPIPE OBSERVABILITY DEMO - Basic Features")
     print("=" * 80)
 
+    # Use a temp dir for persistence so we don't pollute ~/.justpipe
+    tmp_dir = "/tmp/justpipe_observers_demo"
+    os.environ["JUSTPIPE_STORAGE_PATH"] = tmp_dir
+
     await example_simple_debug()
     await example_custom_logger()
-    await example_storage()
+    await example_persistence(tmp_dir)
     await example_multiple_observers()
     await example_error_handling()
 
@@ -219,17 +199,13 @@ async def main():
     print("Demo Complete!")
     print("=" * 80)
     print("\nKey Features Demonstrated:")
-    print("  ✓ debug=True convenience parameter")
-    print("  ✓ EventLogger with configurable log levels")
-    print("  ✓ SQLite storage backend for persistence")
-    print("  ✓ StorageObserver for automatic run tracking")
-    print("  ✓ BarrierDebugger for hang detection")
-    print("  ✓ Multiple observers working together")
-    print("  ✓ Error handling and recording")
-    print("\nNext Steps:")
-    print("  • Check stored runs: SQLiteStorage('/tmp/justpipe_demo')")
-    print("  • Query events: storage.get_events(run_id)")
-    print("  • list all runs: storage.list_runs()")
+    print("  debug=True convenience parameter")
+    print("  EventLogger with configurable log levels")
+    print("  persist=True for automatic SQLite persistence")
+    print("  BarrierDebugger for hang detection")
+    print("  Multiple observers working together")
+    print("  Error handling and recording")
+    print(f"\nPersisted runs stored in: {tmp_dir}")
     print()
 
 

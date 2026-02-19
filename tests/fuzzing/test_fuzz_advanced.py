@@ -22,7 +22,6 @@ pytestmark = pytest.mark.slow
     route_key=st.sampled_from(["route_a", "route_b", "route_c"]),
 )
 @settings(max_examples=10, deadline=2000)
-@pytest.mark.asyncio
 async def test_fuzz_switch_routing(route_key: str) -> None:
     """Test switch routing with random route selections."""
     pipe: Pipe[Any, Any] = Pipe()
@@ -70,7 +69,6 @@ async def test_fuzz_switch_routing(route_key: str) -> None:
     fail_until_attempt=st.integers(min_value=0, max_value=2),
 )
 @settings(max_examples=10, deadline=3000)
-@pytest.mark.asyncio
 async def test_fuzz_retry_logic(retries: int, fail_until_attempt: int) -> None:
     """Test retry logic with random retry counts and failure patterns."""
     pipe: Pipe[Any, Any] = Pipe()
@@ -106,7 +104,6 @@ async def test_fuzz_retry_logic(retries: int, fail_until_attempt: int) -> None:
     worker_count=st.integers(min_value=1, max_value=5),
 )
 @settings(max_examples=10, deadline=3000)
-@pytest.mark.asyncio
 async def test_fuzz_barrier_with_workers(worker_count: int) -> None:
     """Test barriers with random worker counts."""
     pipe: Pipe[Any, Any] = Pipe()
@@ -141,7 +138,6 @@ async def test_fuzz_barrier_with_workers(worker_count: int) -> None:
     nesting_depth=st.integers(min_value=1, max_value=3),
 )
 @settings(max_examples=5, deadline=3000)
-@pytest.mark.asyncio
 async def test_fuzz_sub_pipeline_nesting(nesting_depth: int) -> None:
     """Test nested sub-pipelines with random depth."""
     execution_order: list[str] = []
@@ -180,7 +176,6 @@ async def test_fuzz_sub_pipeline_nesting(nesting_depth: int) -> None:
     sub_pipe_count=st.integers(min_value=1, max_value=3),
 )
 @settings(max_examples=5, deadline=3000)
-@pytest.mark.asyncio
 async def test_fuzz_multiple_sub_pipelines(sub_pipe_count: int) -> None:
     """Test multiple sub-pipelines executing in parallel."""
     main_pipe: Pipe[Any, Any] = Pipe()
@@ -217,7 +212,6 @@ async def test_fuzz_multiple_sub_pipelines(sub_pipe_count: int) -> None:
     worker_count=st.integers(min_value=1, max_value=3),
 )
 @settings(max_examples=5, deadline=3000)
-@pytest.mark.asyncio
 async def test_fuzz_barrier_combinations(use_barrier: bool, worker_count: int) -> None:
     """Test barriers with random configurations."""
     pipe: Pipe[Any, Any] = Pipe()

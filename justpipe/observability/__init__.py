@@ -14,7 +14,6 @@ class ObserverMeta:
     pipe_name: str
     run_id: str | None = None
     started_at: float | None = None
-    observer_version: int = 1
 
 
 @runtime_checkable
@@ -45,22 +44,15 @@ class Observer:
     logging, storage, or debugging logic.
 
     Example:
-        class MetricsCollector(Observer):
-            def __init__(self):
-                self.metrics = {}
-
-            async def on_pipeline_start(self, state, context, meta):
-                self.start_time = time.time()
-
+        class MyObserver(Observer):
             async def on_event(self, state, context, meta, event: Event):
                 if event.type == EventType.STEP_END:
-                    # Collect metrics
-                    pass
+                    print(f"Step {event.stage} completed")
 
             async def on_pipeline_end(self, state, context, meta, duration_s: float):
                 print(f"Pipeline completed in {duration_s:.2f}s")
 
-        pipe.add_observer(MetricsCollector())
+        pipe.add_observer(MyObserver())
     """
 
     async def on_pipeline_start(
@@ -158,7 +150,6 @@ from justpipe.observability.barrier import (  # noqa: E402
     BarrierDebugRecord,
     BarrierDebugSink,
 )
-from justpipe.observability.metrics import MetricsCollector  # noqa: E402
 from justpipe.observability.timeline import TimelineVisualizer  # noqa: E402
 from justpipe.observability.state import StateDiffTracker  # noqa: E402
 from justpipe.observability.compare import (  # noqa: E402
@@ -179,7 +170,6 @@ __all__ = [
     "BarrierDebugger",
     "BarrierDebugRecord",
     "BarrierDebugSink",
-    "MetricsCollector",
     "TimelineVisualizer",
     "StateDiffTracker",
     "compare_runs",

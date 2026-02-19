@@ -1,11 +1,8 @@
-import pytest
 from unittest.mock import MagicMock
-from justpipe.types import EventType
-from justpipe._internal.types import HookSpec, InjectionSource
+from justpipe.types import EventType, HookSpec, InjectionSource
 from justpipe._internal.runtime.orchestration.lifecycle_manager import _LifecycleManager
 
 
-@pytest.mark.asyncio
 async def test_lifecycle_manager_startup_success() -> None:
     hook = MagicMock()
     hook_spec = HookSpec(func=hook, injection_metadata={"s": InjectionSource.STATE})
@@ -17,7 +14,6 @@ async def test_lifecycle_manager_startup_success() -> None:
     hook.assert_called_once_with(s="foo")
 
 
-@pytest.mark.asyncio
 async def test_lifecycle_manager_startup_failure() -> None:
     hook = MagicMock(side_effect=RuntimeError("Fail"))
     hook_spec = HookSpec(func=hook, injection_metadata={})
@@ -31,7 +27,6 @@ async def test_lifecycle_manager_startup_failure() -> None:
     assert "Fail" in (res.payload if isinstance(res.payload, str) else "")
 
 
-@pytest.mark.asyncio
 async def test_lifecycle_manager_shutdown() -> None:
     hook = MagicMock()
     hook_spec = HookSpec(func=hook, injection_metadata={"c": InjectionSource.CONTEXT})
@@ -45,7 +40,6 @@ async def test_lifecycle_manager_shutdown() -> None:
     hook.assert_called_once_with(c="bar")
 
 
-@pytest.mark.asyncio
 async def test_lifecycle_manager_startup_stops_on_first_failure() -> None:
     first = MagicMock(side_effect=RuntimeError("first failed"))
     second = MagicMock()
@@ -64,7 +58,6 @@ async def test_lifecycle_manager_startup_stops_on_first_failure() -> None:
     second.assert_not_called()
 
 
-@pytest.mark.asyncio
 async def test_lifecycle_manager_shutdown_yields_all_failures() -> None:
     first = MagicMock(side_effect=RuntimeError("first failed"))
     second = MagicMock(side_effect=RuntimeError("second failed"))

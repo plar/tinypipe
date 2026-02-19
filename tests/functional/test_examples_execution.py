@@ -39,7 +39,7 @@ def run_example(example_name: str) -> subprocess.CompletedProcess[str]:
         ),
         (
             "12_observability",
-            ["JUSTPIPE OBSERVABILITY DEMO", "Total Duration:", "Bottleneck:"],
+            ["JUSTPIPE OBSERVABILITY DEMO", "Total Duration:"],
             "pipeline.mmd",
         ),
     ],

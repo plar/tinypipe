@@ -6,7 +6,6 @@ from justpipe import DefinitionError, EventType, Pipe
 from justpipe.observability import Observer
 
 
-@pytest.mark.asyncio
 async def test_definition_mutation_is_blocked_after_first_run() -> None:
     pipe: Pipe[Any, Any] = Pipe()
 
@@ -42,7 +41,6 @@ async def test_definition_mutation_is_blocked_after_first_run() -> None:
         pipe.add_observer(_NoopObserver())
 
 
-@pytest.mark.asyncio
 async def test_registry_mutation_is_blocked_after_first_run() -> None:
     pipe: Pipe[Any, Any] = Pipe()
 
@@ -56,7 +54,6 @@ async def test_registry_mutation_is_blocked_after_first_run() -> None:
         pipe.registry.add_middleware(lambda func, ctx: func)
 
 
-@pytest.mark.asyncio
 async def test_read_only_introspection_still_works_after_freeze() -> None:
     pipe: Pipe[Any, Any] = Pipe()
 
@@ -71,7 +68,6 @@ async def test_read_only_introspection_still_works_after_freeze() -> None:
     assert isinstance(pipe.graph(), str)
 
 
-@pytest.mark.asyncio
 async def test_validation_failure_does_not_freeze_definition() -> None:
     pipe: Pipe[Any, Any] = Pipe()
 

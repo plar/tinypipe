@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import json
 from collections import Counter
 
-from justpipe.cli.formatting import format_duration, format_timestamp, resolve_or_exit
+from justpipe.cli.formatting import format_duration, format_timestamp, parse_run_meta, resolve_or_exit
 from justpipe.cli.registry import PipelineRegistry
 from justpipe.types import EventType
 
@@ -58,13 +57,13 @@ def show_command(registry: PipelineRegistry, run_id_prefix: str) -> None:
             print("  (No step events)")
 
     # User meta
-    if run.user_meta:
-        try:
-            meta = json.loads(run.user_meta)
+    meta = parse_run_meta(run.run_meta)
+    if meta is not None:
+        if isinstance(meta, dict):
             print("\nUser Meta:")
             for key, value in meta.items():
                 print(f"  {key}: {value}")
-        except (json.JSONDecodeError, AttributeError):
-            print(f"\nUser Meta: {run.user_meta}")
+        else:
+            print(f"\nUser Meta: {meta}")
 
     print()

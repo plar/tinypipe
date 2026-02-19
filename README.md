@@ -13,34 +13,26 @@
 
 Building production AI agents often leads to a mess of nested `asyncio` loops, manual state management, and brittle error handling. **justpipe** provides a lightweight, Pythonic abstraction that lets you focus on logic while it handles the orchestration.
 
-- **Zero Dependencies**: Pure Python. Fast, lightweight, and easy to drop into any project.
+- **Zero Dependencies**: Pure Python. No transitive deps in the core library.
 - **Async-First**: Built from the ground up for modern Python concurrency.
-- **Developer Experience**: "The code is the graph." No complex YAML or UI builders-your decorators define the topology.
-- **Production Ready**: Built-in support for retries, backpressure, structured observability, and lineage tracking.
+- **Developer Experience**: "The code is the graph." No complex YAML or UI builders -- your decorators define the topology.
+- **Battle-Tested**: 560+ tests across unit, integration, functional, and fuzzing layers. Built-in retries, backpressure, and structured observability.
 
 ---
 
 ## Installation
 
 ```bash
-# As a CLI tool (recommended)
-pipx install justpipe
-
-# Or with uv
-uv tool install justpipe
-
-# Or as a library dependency
-pip install justpipe
-
-# With retry support (via tenacity)
-pip install "justpipe[retry]"
+pip install justpipe              # Core (zero dependencies)
+pip install "justpipe[cli]"       # With CLI tools (click, rich)
+pip install "justpipe[retry]"     # With retry support (tenacity)
 ```
 
 ---
 
 ## Quickstart: AI Search Pipeline
 
-Define a type-safe pipeline that fetches search results, generates a prompt, and streams an LLM response.
+Define a type-safe pipeline that fetches search results, generates a prompt, and streams an LLM response. Steps execute top-to-bottom -- `to=` wires the flow.
 
 ```python
 import asyncio
@@ -55,35 +47,70 @@ class AIState:
 
 pipe = Pipe(AIState)
 
-@pipe.step()
-async def call_llm(state: AIState):
-    """A streaming step yielding tokens from an LLM."""
-    # Simulate a streaming LLM response
-    for chunk in ["Based ", "on ", "your ", "data..."]:
-        yield chunk
-
-@pipe.step(to=call_llm)
-async def generate_prompt(state: AIState):
-    """Format the prompt using gathered context."""
-    state.response = f"Context: {state.context}\nQuery: {state.query}"
-
-@pipe.step(to=generate_prompt)
+@pipe.step(to="generate_prompt")
 async def search_vectors(state: AIState):
     """Simulate a RAG vector search."""
     state.context.append("Vector DB result: Python is fun.")
 
+@pipe.step(to="call_llm")
+async def generate_prompt(state: AIState):
+    """Format the prompt using gathered context."""
+    state.response = f"Context: {state.context}\nQuery: {state.query}"
+
+@pipe.step()
+async def call_llm(state: AIState):
+    """A streaming step yielding tokens from an LLM."""
+    for chunk in ["Based ", "on ", "your ", "data..."]:
+        yield chunk
+
 async def main():
     state = AIState(query="Tell me about Python")
-    
-    # pipe.run() returns an async generator of events
+
     async for event in pipe.run(state):
         if event.type == EventType.TOKEN:
             print(event.payload, end="", flush=True)
-            
+
     print("\nPipeline Complete!")
 
 if __name__ == "__main__":
     asyncio.run(main())
+```
+
+---
+
+## The Imports You Need
+
+```python
+from justpipe import Pipe, EventType     # Core
+from justpipe import TestPipe            # Testing
+from justpipe import Skip, Retry, Raise  # Error control
+from justpipe.types import StepContext   # Advanced: middleware
+from justpipe.failures import FailureKind  # Advanced: failure classification
+```
+
+---
+
+## Built-in Testing Harness
+
+`TestPipe` is a first-class testing tool that ships with the library. Mock steps, capture events, and make precise assertions -- no external test utilities required.
+
+```python
+from justpipe import TestPipe
+
+async def test_my_workflow():
+    with TestPipe(pipe) as tester:
+        # Mock a streaming LLM call
+        async def mock_llm(state):
+            yield "Mocked answer"
+
+        tester.mock("call_llm", side_effect=mock_llm)
+
+        # Execute the pipeline
+        result = await tester.run(AIState(query="test"))
+
+        # Precise assertions
+        assert result.was_called("search_vectors")
+        assert "Mocked answer" in result.tokens
 ```
 
 ---
@@ -103,7 +130,7 @@ async def respond(state):
 ```
 
 - **Type-Safe DI**: Automatically injects `state`, `context`, or even specific items from map workers based on type hints or parameter names.
-- **Mutable State**: Designed around Python `dataclasses`. No complex state reduction-just mutate your state object directly.
+- **Mutable State**: Designed around Python `dataclasses`. No complex state reduction -- just mutate your state object directly.
 - **Context-Aware Routing**: Use `@pipe.switch` for dynamic branching or `@pipe.map` for massive fan-out parallelism.
 
 ---
@@ -154,7 +181,7 @@ Route execution dynamically based on return values.
 
 ```python
 @pipe.switch(to={
-    "ok": "process_success", 
+    "ok": "process_success",
     "error": "handle_failure"
 })
 async def validate(state) -> str:
@@ -175,7 +202,7 @@ Pause execution to wait for external input or human approval, then resume exactl
 
 ## Command Line Interface (CLI)
 
-**justpipe** comes with a powerful CLI for debugging and performance analysis. Query runs, visualize timelines, and compare executions with ease.
+**justpipe** ships with a CLI for debugging and performance analysis. Install it with `pip install "justpipe[cli]"`.
 
 ```bash
 # List recent pipeline runs
@@ -193,12 +220,17 @@ justpipe compare <run-id-1> <run-id-2>
 
 ---
 
-## Why choose justpipe?
+## Comparison
 
-- **Built for AI**: Native support for token streaming and complex retry logic makes it ideal for LLM orchestration.
-- **Developer First**: No YAML, no complex UI—just Python functions and decorators.
-- **Observability by Default**: Every run is traceable with built-in lineage tracking and a rich event system.
-- **Lightweight**: Zero core dependencies. Perfect for edge deployments or simple microservices.
+| Feature | justpipe | LangGraph | Prefect | Hamilton | Raw asyncio |
+|---------|----------|-----------|---------|----------|-------------|
+| Zero dependencies | Yes | No | No | No | Yes |
+| Async-native | Yes | Partial | Yes | No | Yes |
+| Token streaming | Built-in | Manual | No | No | Manual |
+| Graph-from-code | Decorators | State machine | Decorators | Functions | N/A |
+| Built-in test harness | `TestPipe` | No | No | No | No |
+| Backpressure | Built-in | No | No | No | Manual |
+| Human-in-the-loop | `Suspend` | `interrupt` | `pause` | No | Manual |
 
 ---
 
@@ -212,27 +244,6 @@ Our suite follows a strict separation of concerns:
 - **Integration Tests**: Verification of interactions across storage boundaries and module interfaces.
 - **Functional Tests**: End-to-end validation of pipeline contracts, event ordering, and concurrency.
 - **Fuzzing**: Randomized property-based testing to uncover edge cases in graph execution.
-
-### Specialized Testing Harness
-Use the `TestPipe` harness to write expressive tests for your own workflows:
-```python
-from justpipe import TestPipe
-
-async def test_my_workflow():
-    with TestPipe(pipe) as tester:
-        # Mock a streaming LLM call
-        async def mock_llm(state):
-            yield "Mocked answer"
-            
-        tester.mock("call_llm", side_effect=mock_llm)
-        
-        # Execute the pipeline
-        result = await tester.run(AIState(query="test"))
-        
-        # Precise assertions
-        assert result.was_called("search_vectors")
-        assert "Mocked answer" in result.tokens
-```
 
 ---
 

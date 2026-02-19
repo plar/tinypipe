@@ -65,6 +65,8 @@ The `FINISH` event carries a `PipelineEndData` payload with the following fields
 | `errors` | A list of `FailureRecord` objects containing the full exception chain. |
 | `metrics` | A snapshot of performance data (task counts, queue depth, step latencies). |
 
+Run-scope user metadata (from `ctx.meta.run`) is carried on the FINISH event's `meta` field, not the `PipelineEndData` payload. See the [Observability Guide](./observability.md) for details.
+
 ## Lifecycle Invariants
 
 1.  **Single Finish**: Exactly one `FINISH` event is emitted per `run()`.

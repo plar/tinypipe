@@ -49,17 +49,17 @@ def test_sqlite_run_with_error() -> None:
         assert result.error_step == "step_a"
 
 
-def test_sqlite_user_meta_stored() -> None:
+def test_sqlite_run_meta_stored() -> None:
     with tempfile.TemporaryDirectory() as tmpdir:
         backend = SQLiteBackend(Path(tmpdir) / "runs.db")
         run = make_run(
             "meta1",
-            user_meta='{"run": {"data": {"key": "val"}}}',
+            run_meta='{"run": {"data": {"key": "val"}}}',
         )
         backend.save_run(run, [])
         result = backend.get_run("meta1")
         assert result is not None
-        assert result.user_meta == '{"run": {"data": {"key": "val"}}}'
+        assert result.run_meta == '{"run": {"data": {"key": "val"}}}'
 
 
 # ---------------------------------------------------------------------------

@@ -1,25 +1,25 @@
 """Metrics and visualization demo for justpipe.
 
 This example demonstrates:
-1. MetricsCollector - Performance metrics and bottleneck detection
+1. RuntimeMetrics - Built-in performance metrics from FINISH event
 2. TimelineVisualizer - Execution timeline visualization
 3. StateDiffTracker - State change tracking and diffs
-4. CLI tools - list, show, timeline commands
+4. persist=True + CLI workflow
 """
 
 import asyncio
-import time
+import os
 from dataclasses import dataclass
+from pathlib import Path
 
-from justpipe import Pipe
+from justpipe import Pipe, EventType
+from justpipe.types import PipelineEndData
 from justpipe.observability import (
     EventLogger,
-    MetricsCollector,
     TimelineVisualizer,
     StateDiffTracker,
-    StorageObserver,
 )
-from justpipe.storage import SQLiteStorage
+from justpipe.storage.sqlite import SQLiteBackend
 
 
 @dataclass
@@ -38,30 +38,25 @@ class State:
             self.word_counts = {}
 
 
-# Example 1: MetricsCollector
-async def example_metrics_collector():
-    """Collect and analyze performance metrics."""
+# Example 1: RuntimeMetrics from FINISH event
+async def example_runtime_metrics():
+    """Access built-in runtime metrics from the FINISH event."""
     print("\n" + "=" * 60)
-    print("Example 1: MetricsCollector")
+    print("Example 1: RuntimeMetrics from FINISH Event")
     print("=" * 60)
 
-    metrics = MetricsCollector(clock=time.time)
-
     pipe: Pipe[State, None] = Pipe(name="metrics_demo")
-    pipe.add_observer(metrics)
 
     @pipe.step("parse", to="count")
     async def parse(state: State):
         state.text = "hello world hello python python python"
         state.words = state.text.split()
-        # Simulate some work
         await asyncio.sleep(0.01)
 
     @pipe.step("count", to="finalize")
     async def count(state: State):
         for word in state.words:
             state.word_counts[word] = state.word_counts.get(word, 0) + 1
-        # This step is slower (bottleneck)
         await asyncio.sleep(0.05)
 
     @pipe.step("finalize")
@@ -70,19 +65,19 @@ async def example_metrics_collector():
         await asyncio.sleep(0.005)
 
     state = State()
-    async for _ in pipe.run(state):
-        pass
+    end_data: PipelineEndData | None = None
+    async for event in pipe.run(state):
+        if event.type == EventType.FINISH:
+            end_data = event.payload
 
-    # Print metrics summary
-    print("\n" + metrics.summary())
-
-    # Show bottleneck
-    print(f"Identified bottleneck: {metrics.get_bottleneck()}")
-    print(f"Bottleneck percentage: {metrics.get_bottleneck_percentage():.1f}%")
-
-    # Export to dict
-    data = metrics.to_dict()
-    print(f"\nExported metrics keys: {list(data.keys())}")
+    if end_data and end_data.metrics:
+        rm = end_data.metrics
+        print(f"\nDuration: {end_data.duration_s:.3f}s")
+        print(f"Steps: {list(rm.step_latency.keys())}")
+        for name, timing in rm.step_latency.items():
+            print(f"  {name}: {timing.total_s:.3f}s ({timing.count} invocations)")
+        print(f"Tokens: {rm.tokens}")
+        print(f"Events: {rm.events}")
 
 
 # Example 2: TimelineVisualizer
@@ -187,14 +182,12 @@ async def example_all_together():
     print("=" * 60)
 
     # Create all observers
-    metrics = MetricsCollector(clock=time.time)
     timeline = TimelineVisualizer()
     tracker = StateDiffTracker()
     logger = EventLogger(level="INFO", sink=EventLogger.stderr_sink())
 
     pipe: Pipe[State, None] = Pipe(name="comprehensive_demo")
     pipe.add_observer(logger)
-    pipe.add_observer(metrics)
     pipe.add_observer(timeline)
     pipe.add_observer(tracker)
 
@@ -217,9 +210,6 @@ async def example_all_together():
     async for _ in pipe.run(state):
         pass
 
-    print("\n--- Metrics ---")
-    print(metrics.summary())
-
     print("\n--- Timeline ---")
     print(timeline.render_ascii())
 
@@ -228,17 +218,13 @@ async def example_all_together():
 
 
 # Example 5: Storage + CLI workflow
-async def example_storage_and_cli():
-    """Demonstrate storage and CLI workflow."""
+async def example_storage_and_cli(tmp_dir: str):
+    """Demonstrate persist=True and CLI workflow."""
     print("\n" + "=" * 60)
     print("Example 5: Storage + CLI Workflow")
     print("=" * 60)
 
-    storage = SQLiteStorage("/tmp/justpipe_phase2_demo")
-
-    pipe: Pipe[State, None] = Pipe(name="cli_workflow_demo")
-    storage_obs = StorageObserver(storage)
-    pipe.add_observer(storage_obs)
+    pipe: Pipe[State, None] = Pipe(name="cli_workflow_demo", persist=True)
     pipe.add_observer(EventLogger(level="INFO", sink=EventLogger.stderr_sink()))
 
     @pipe.step("parse", to="count")
@@ -255,18 +241,16 @@ async def example_storage_and_cli():
     async for _ in pipe.run(state):
         pass
 
-    run_id = storage_obs.get_run_id()
-    print(f"\n✓ Run stored with ID: {run_id}")
-
-    # list all runs
-    runs = await storage.list_runs()
-    print(f"\nTotal runs in storage: {len(runs)}")
+    # Query the persisted data
+    db_files = list(Path(tmp_dir).rglob("runs.db"))
+    if db_files:
+        backend = SQLiteBackend(db_files[0])
+        runs = backend.list_runs()
+        print(f"\nTotal runs in storage: {len(runs)}")
 
     print("\nYou can now use CLI tools:")
-    print("  justpipe list")
-    print(f"  justpipe show {run_id}")
-    print(f"  justpipe timeline {run_id}")
-    print("\nStorage location: /tmp/justpipe_phase2_demo")
+    print(f"  JUSTPIPE_STORAGE_PATH={tmp_dir} justpipe list")
+    print(f"  JUSTPIPE_STORAGE_PATH={tmp_dir} justpipe stats")
 
 
 async def main():
@@ -275,26 +259,27 @@ async def main():
     print("JUSTPIPE OBSERVABILITY DEMO - Metrics & Visualization")
     print("=" * 80)
 
-    await example_metrics_collector()
+    tmp_dir = "/tmp/justpipe_metrics_demo"
+    os.environ["JUSTPIPE_STORAGE_PATH"] = tmp_dir
+
+    await example_runtime_metrics()
     await example_timeline_visualizer()
     await example_state_diff_tracker()
     await example_all_together()
-    await example_storage_and_cli()
+    await example_storage_and_cli(tmp_dir)
 
     print("\n" + "=" * 80)
     print("Demo Complete!")
     print("=" * 80)
     print("\nFeatures Demonstrated:")
-    print("  ✓ MetricsCollector - Performance analysis")
-    print("  ✓ TimelineVisualizer - ASCII/HTML/Mermaid timelines")
-    print("  ✓ StateDiffTracker - State change tracking")
-    print("  ✓ Multiple observers working together")
-    print("  ✓ Storage + CLI workflow")
+    print("  RuntimeMetrics - Built-in performance analysis")
+    print("  TimelineVisualizer - ASCII/HTML/Mermaid timelines")
+    print("  StateDiffTracker - State change tracking")
+    print("  Multiple observers working together")
+    print("  persist=True + CLI workflow")
     print("\nCLI Commands Available:")
-    print("  export JUSTPIPE_STORAGE_DIR=/tmp/justpipe_phase2_demo")
-    print("  justpipe list")
-    print("  justpipe show <run-id>")
-    print("  justpipe timeline <run-id> --format ascii")
+    print(f"  JUSTPIPE_STORAGE_PATH={tmp_dir} justpipe list")
+    print(f"  JUSTPIPE_STORAGE_PATH={tmp_dir} justpipe stats")
     print()
 
 

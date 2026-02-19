@@ -17,7 +17,7 @@ def make_run(
     duration: timedelta | None = None,
     error_message: str | None = None,
     error_step: str | None = None,
-    user_meta: str | None = None,
+    run_meta: str | None = None,
 ) -> RunRecord:
     """Create a RunRecord with sensible defaults for testing."""
     _start = start_time or datetime(2025, 1, 1, 12, 0, 0)
@@ -31,7 +31,7 @@ def make_run(
         status=status,
         error_message=error_message,
         error_step=error_step,
-        user_meta=user_meta,
+        run_meta=run_meta,
     )
 
 

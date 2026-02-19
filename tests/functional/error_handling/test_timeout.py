@@ -8,7 +8,6 @@ from justpipe import Pipe, EventType
 from justpipe.types import PipelineTerminalStatus, PipelineEndData
 
 
-@pytest.mark.asyncio
 async def test_pipeline_timeout_none_is_unlimited() -> None:
     """Test that timeout=None allows unlimited execution time."""
     pipe: Pipe[Any, Any] = Pipe()
@@ -22,7 +21,6 @@ async def test_pipeline_timeout_none_is_unlimited() -> None:
     assert len(finish_events) == 1
 
 
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("num_steps", "step_sleep", "timeout", "expected_status"),
     [
@@ -75,7 +73,6 @@ async def test_pipeline_timeout_behavior(
         assert len(timeout_events) == 0
 
 
-@pytest.mark.asyncio
 async def test_pipeline_timeout_emits_event_before_exception() -> None:
     """Test that TIMEOUT event is emitted before TimeoutError is raised."""
     pipe: Pipe[Any, Any] = Pipe()
