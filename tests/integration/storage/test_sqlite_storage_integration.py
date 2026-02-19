@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sqlite3
 import tempfile
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -21,8 +21,8 @@ def test_sqlite_pagination() -> None:
             backend.save_run(
                 make_run(
                     f"r{i}",
-                    start_time=datetime(2025, 1, 1, i, 0, 0),
-                    end_time=datetime(2025, 1, 1, i, 0, 5),
+                    start_time=datetime(2025, 1, 1, i, 0, 0, tzinfo=timezone.utc),
+                    end_time=datetime(2025, 1, 1, i, 0, 5, tzinfo=timezone.utc),
                 ),
                 [],
             )

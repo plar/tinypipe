@@ -1,4 +1,5 @@
 import asyncio
+import time
 from typing import Any, TYPE_CHECKING
 
 from justpipe.types import EventType, NodeKind
@@ -87,6 +88,7 @@ class _BarrierManager:
             node_kind=NodeKind.BARRIER,
         )
 
+        t0 = time.monotonic()
         try:
             # Wait for timeout OR satisfaction (via event.set())
             await asyncio.wait_for(event.wait(), timeout=timeout)
@@ -103,10 +105,11 @@ class _BarrierManager:
             )
         else:
             # Satisfied before timeout
+            elapsed = time.monotonic() - t0
             await self._orchestrator.emit(
                 EventType.BARRIER_RELEASE,
                 name,
-                {"duration": 0},
+                {"duration": round(elapsed, 6)},
                 node_kind=NodeKind.BARRIER,
             )
             await self._orchestrator.complete_step(name, name, None, track_owner=False)

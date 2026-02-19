@@ -58,6 +58,14 @@ This document is for LLM agents (like Gemini, Claude, or Cursor) working on or w
 
 ---
 
+## 📦 Public API
+
+13 core exports from `justpipe`: `Pipe`, `Event`, `EventType`, `Meta`, `Stop`, `Suspend`, `Retry`, `Skip`, `Raise`, `DefinitionError`, `simple_logging_middleware`, `TestPipe`, `TestResult`
+
+Failure types from `justpipe.failures`: `FailureRecord`, `FailureKind`, `FailureSource`, `FailureReason`, `PipelineTerminalStatus`, `PipelineCancelled`, `PipelineValidationWarning`
+
+---
+
 ## 🛠 Tooling & Commands
 
 Always run these commands from the project root using `uv`.
@@ -67,7 +75,7 @@ Always run these commands from the project root using `uv`.
 | **Install** | `uv sync --all-extras --dev` |
 | **Test** | `uv run pytest` |
 | **Lint** | `uv run ruff check .` |
-| **Type Check** | `uv run mypy .` |
+| **Type Check** | `uv run mypy justpipe/` |
 | **Format** | `uv run ruff format .` |
 | **Python** | `uv run <relative path to python file>` |
 | **CLI** | `uv run justpipe <command>` |
@@ -87,17 +95,13 @@ Always run these commands from the project root using `uv`.
   - `tests/functional/test_runtime_contracts.py` should cover runtime contracts not already asserted by event-ordering canonicals.
 - **Determinism Rule**: Prefer `asyncio.Event`/explicit coordination over sleep-driven timing in async tests.
 - **Observability Test Rule**: Prefer structured-record assertions (sink outputs) over brittle raw string matching.
+- **`asyncio_mode = "auto"`** in pytest config — do NOT add `@pytest.mark.asyncio` to tests.
+- **563 tests** is the current baseline — all must pass before committing.
+- **`examples/`** is excluded from both ruff and mypy.
 
 ### Local Mutation Testing Notes
-- `mutmut` is configured in `pyproject.toml` under `[tool.mutmut]`.
-- Current mutation targets are intentionally scoped to high-value modules:
-  - `justpipe/_internal/definition/type_resolver.py`
-  - `justpipe/_internal/runtime/engine/pipeline_runner.py`
-  - `justpipe/visualization/builder.py`
-- Use local triage commands after a run:
-  - `uv run mutmut results`
-  - `uv run mutmut show <mutant-id>`
-- Mutation checks are local-only right now and not CI-gated.
+- Configured in `pyproject.toml` `[tool.mutmut]`, scoped to high-value modules. Local-only, not CI-gated.
+- Triage: `uv run mutmut results` / `uv run mutmut show <mutant-id>`
 
 ### Versioning Strategy
 - **hatch-vcs**: Versions are automatically derived from git tags (e.g., `v0.3.0`). **Do NOT manually update the version in `pyproject.toml`.**
@@ -127,21 +131,36 @@ Steps control the graph by returning specific primitives (import from `justpipe`
 - The `_FailureHandler` (internal) determines if an error should be retried, swallowed, or propagated.
 
 ### 4. Async Conventions
-- Requires **Python 3.12+**.
+- Requires **Python 3.11+**.
 - Always use `asyncio.TaskGroup` for managing concurrent tasks.
 - Avoid manual `asyncio.create_task` inside the runner; use `self._spawn()`.
 
 ### 5. Import & Type Hinting Patterns
 - **Modern Annotations:** Use `from __future__ import annotations` in all core engine files.
-- **Python 3.12 Type Syntax (Required):** Use built-in generics and PEP 604 unions, e.g. `dict[str, Any]`, `list[str]`, `set[str]`, `tuple[int, str]`, `X | Y`, `type[MyClass]`.
+- **Modern Type Syntax (Required):** Use built-in generics and PEP 604 unions, e.g. `dict[str, Any]`, `list[str]`, `set[str]`, `tuple[int, str]`, `X | Y`, `type[MyClass]`.
 - **Avoid Legacy Typing Aliases:** Do not introduce `typing.Dict`, `typing.List`, `typing.Set`, `typing.Tuple`, `typing.Union`, or `typing.Type` in new or modified code.
 - **TYPE_CHECKING:** Wrap internal types used only for hints in `if TYPE_CHECKING:` guards to prevent circularities.
 - **Runtime Integrity:** Keep classes that are instantiated, inherited from, or used in `isinstance()` checks at the top level.
 
+### 6. Meta Protocol
+- `Meta` is a Protocol (not ABC), detected via `get_type_hints()` on user's context type.
+- Three scopes: `ctx.meta.step` (write, contextvar-scoped), `ctx.meta.run` (write, shared), `ctx.meta.pipeline` (read-only).
+- Step meta appears on `Event.meta` of STEP_END/STEP_ERROR events; run meta on FINISH events.
+
+### 7. Storage & Persistence
+- `StorageBackend` is a sync Protocol; async wrapping via `asyncio.to_thread()` in the observer.
+- Backends: `SQLiteBackend`, `InMemoryBackend` in `justpipe/storage/`.
+- Storage DTOs use `datetime`/`timedelta` and justpipe enums; internal `Event.timestamp` stays `float`.
+
 ---
 
 ## 🚦 Common Pitfalls
+- **Zero-dep Core**: `justpipe` has no runtime dependencies. `tenacity`, `click`, `rich`, `fastapi` are optional extras.
+- **Persistence Off by Default**: `persist=False` — no surprise disk writes unless explicitly enabled.
+- **Dashboard Frontend**: `dashboard-ui/` is a Vue 3 + Vite + Tailwind v4 app; built assets go to `justpipe/dashboard/static/` via custom hatch build hook.
 - **Type Erasure**: `justpipe` requires `state_type` and `context_type` in `Pipe()` constructor for runtime signature analysis.
 - **Backpressure**: The event queue has a default size (`1000`). If many tokens are yielded without being consumed, the pipeline will block.
 - **Mutable State**: State is shared across parallel steps. Use thread-safe patterns or `context` for read-only data.
 - **Barrier Deadlocks**: Ensure that `BarrierType.ALL` steps can actually reach all their parent dependencies.
+- **Event Hook Ordering**: Event hooks run before observers (so hook-enriched meta is visible to persistence).
+- **No Backward Compat**: Project is WIP — no need for deprecation shims or re-exports of removed code.

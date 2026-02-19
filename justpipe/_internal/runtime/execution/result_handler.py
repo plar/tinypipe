@@ -33,17 +33,20 @@ class _ResultHandler:
         failure_handler: "_FailureHandler",
         scheduler: "_Scheduler",
         steps: dict[str, "_BaseStep"],
+        max_retries: int = 100,
     ):
         self._orchestrator = orchestrator
         self._failure_handler = failure_handler
         self._scheduler = scheduler
         self._steps = steps
+        self._max_retries = max_retries
 
     async def process_step_result(
         self, item: StepCompleted, state: Any, context: Any
     ) -> AsyncGenerator[Event, None]:
         """Determine next action based on step return value."""
         res = item.result
+        inv = item.invocation
 
         if isinstance(res, Raise):
             error = res.exception or RuntimeError(
@@ -64,17 +67,31 @@ class _ResultHandler:
             return
 
         if isinstance(res, Retry):
+            attempt = inv.attempt if inv else 1
+            if attempt >= self._max_retries:
+                warnings.warn(
+                    f"Step '{item.name}' exceeded max retries ({self._max_retries}). Treating as error.",
+                    UserWarning,
+                    stacklevel=2,
+                )
+                await self._failure_handler.handle_failure(
+                    item.name,
+                    item.owner,
+                    RuntimeError(
+                        f"Step '{item.name}' exceeded max retries ({self._max_retries})"
+                    ),
+                    item.payload,
+                    state,
+                    context,
+                )
+                return
             self._orchestrator.schedule(
                 item.name,
                 owner=item.owner,
                 payload=item.payload,
-                parent_invocation_id=(
-                    item.invocation.invocation_id if item.invocation else None
-                ),
-                owner_invocation_id=(
-                    item.invocation.owner_invocation_id if item.invocation else None
-                ),
-                scope=item.invocation.scope if item.invocation else (),
+                parent_invocation_id=inv.invocation_id if inv else None,
+                owner_invocation_id=inv.owner_invocation_id if inv else None,
+                scope=inv.scope if inv else (),
             )
             return
 
@@ -99,10 +116,8 @@ class _ResultHandler:
         elif isinstance(res, _Next) and res.target is not None:
             self._orchestrator.schedule(
                 _resolve_name(res.target),
-                parent_invocation_id=(
-                    item.invocation.invocation_id if item.invocation else None
-                ),
-                scope=item.invocation.scope if item.invocation else (),
+                parent_invocation_id=inv.invocation_id if inv else None,
+                scope=inv.scope if inv else (),
             )
         elif isinstance(res, _Map):
             await self._scheduler.handle_map(res, item.owner, item.invocation)

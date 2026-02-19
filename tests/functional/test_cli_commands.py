@@ -1,7 +1,7 @@
 """Functional tests for CLI commands with real SQLiteBackend."""
 
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -126,7 +126,7 @@ class TestExportCommand:
 class TestStatsCommand:
     def test_stats(self, tmp_path: Path) -> None:
         backend = _setup_storage(tmp_path)
-        now = datetime.now()
+        now = datetime.now(tz=timezone.utc)
         backend.save_run(make_run(start_time=now - timedelta(hours=1)), [])
         backend.save_run(
             make_run(

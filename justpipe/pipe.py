@@ -63,6 +63,7 @@ class Pipe(Generic[StateT, ContextT]):
         metadata: dict[str, Any] | None = None,
         persist: bool | None = None,
         flush_interval: int | None = None,
+        max_retries: int = 100,
     ):
         """Create a new pipeline with explicit type parameters.
 
@@ -88,6 +89,8 @@ class Pipe(Generic[StateT, ContextT]):
             flush_interval: When persist is enabled, flush events to storage
                 every *flush_interval* events to bound memory. None (default)
                 buffers all events until pipeline completion.
+            max_retries: Maximum number of retry attempts per step before
+                treating as an error. Default: 100.
         """
         self.name = name
         self.strict = strict
@@ -100,6 +103,12 @@ class Pipe(Generic[StateT, ContextT]):
         self._metadata = metadata or {}
         self._persist = _resolve_bool_flag(persist, "JUSTPIPE_PERSIST")
         self._flush_interval = flush_interval
+        self._max_retries = max_retries
+
+        # Lazy-cached persistence objects (stable after registry.freeze())
+        self._cached_backend: Any = None
+        self._cached_pipeline_hash: str | None = None
+        self._cached_describe: dict[str, Any] | None = None
 
         self.state_type: type[Any] = state_type or type(None)
         self.context_type: type[Any] = context_type or type(None)
@@ -376,20 +385,24 @@ class Pipe(Generic[StateT, ContextT]):
             from justpipe._internal.runtime.persistence import (
                 _AutoPersistenceObserver,
             )
-            from justpipe._internal.shared.utils import resolve_storage_path
-            from justpipe.storage.sqlite import SQLiteBackend
 
-            pipeline_hash = compute_pipeline_hash(
-                self.name, self.registry.steps, self.registry.topology
-            )
-            storage_dir = resolve_storage_path() / pipeline_hash
-            storage_dir.mkdir(parents=True, exist_ok=True)
-            backend = SQLiteBackend(storage_dir / "runs.db")
+            if self._cached_backend is None:
+                from justpipe._internal.shared.utils import resolve_storage_path
+                from justpipe.storage.sqlite import SQLiteBackend
+
+                self._cached_pipeline_hash = compute_pipeline_hash(
+                    self.name, self.registry.steps, self.registry.topology
+                )
+                storage_dir = resolve_storage_path() / self._cached_pipeline_hash
+                storage_dir.mkdir(parents=True, exist_ok=True)
+                self._cached_backend = SQLiteBackend(storage_dir / "runs.db")
+                self._cached_describe = self.describe()
+
             observers.append(
                 _AutoPersistenceObserver(
-                    backend=backend,
-                    pipeline_hash=pipeline_hash,
-                    describe_snapshot=self.describe(),
+                    backend=self._cached_backend,
+                    pipeline_hash=self._cached_pipeline_hash,  # type: ignore[arg-type]
+                    describe_snapshot=self._cached_describe,  # type: ignore[arg-type]
                     flush_interval=self._flush_interval,
                 )
             )
@@ -425,6 +438,7 @@ class Pipe(Generic[StateT, ContextT]):
             cancellation_token=self.cancellation_token,
             failure_classification=self._failure_classification,
             pipe_metadata=self._metadata,
+            max_retries=self._max_retries,
         )
         runner = build_runner(config)
 

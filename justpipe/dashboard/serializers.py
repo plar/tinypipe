@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from collections import Counter
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from justpipe.cli.formatting import parse_run_meta
@@ -92,7 +92,7 @@ def serialize_comparison(comp: RunComparison) -> dict[str, Any]:
 
 def serialize_stats(runs: list[RunRecord], days: int = 7) -> dict[str, Any]:
     """Compute aggregate stats from runs → JSON-serializable dict."""
-    cutoff = datetime.now() - timedelta(days=days)
+    cutoff = datetime.now(tz=timezone.utc) - timedelta(days=days)
     recent = [r for r in runs if r.start_time >= cutoff]
 
     total = len(recent)

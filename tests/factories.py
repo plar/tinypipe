@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from justpipe.storage.interface import RunRecord
 from justpipe.types import PipelineTerminalStatus
@@ -20,8 +20,8 @@ def make_run(
     run_meta: str | None = None,
 ) -> RunRecord:
     """Create a RunRecord with sensible defaults for testing."""
-    _start = start_time or datetime(2025, 1, 1, 12, 0, 0)
-    _end = end_time or datetime(2025, 1, 1, 12, 0, 5)
+    _start = start_time or datetime(2025, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+    _end = end_time or datetime(2025, 1, 1, 12, 0, 5, tzinfo=timezone.utc)
     _dur = duration or timedelta(seconds=5)
     return RunRecord(
         run_id=run_id,

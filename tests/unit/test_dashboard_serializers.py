@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from justpipe.cli.registry import PipelineInfo
@@ -154,7 +154,7 @@ class TestSerializeComparison:
 
 class TestSerializeStats:
     def test_basic(self) -> None:
-        now = datetime.now()
+        now = datetime.now(tz=timezone.utc)
         runs = [
             make_run(
                 "r1",
@@ -180,7 +180,7 @@ class TestSerializeStats:
         assert result["duration_stats"]["avg"] == 5.0
 
     def test_filters_by_days(self) -> None:
-        now = datetime.now()
+        now = datetime.now(tz=timezone.utc)
         runs = [
             make_run("r1", start_time=now - timedelta(hours=1)),
             make_run("r2", start_time=now - timedelta(days=30)),

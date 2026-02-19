@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from justpipe.cli.formatting import parse_run_meta, resolve_or_exit
@@ -79,7 +79,7 @@ def export_command(
         },
         "events": _export_events(events),
         "event_count": len(events),
-        "exported_at": datetime.now().isoformat(),
+        "exported_at": datetime.now(tz=timezone.utc).isoformat(),
     }
 
     if output_file is None:

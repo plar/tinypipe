@@ -31,17 +31,20 @@ def pair_step_events(
     Returns:
         List of StepSpan objects in event order.
     """
-    starts: dict[str, Any] = {}
+    # Use a stack (LIFO) per step_name to correctly handle concurrent
+    # map workers that share the same step name.
+    starts: dict[str, list[Any]] = {}
     spans: list[StepSpan] = []
 
     for step_name, event_type, timestamp in events:
         if event_type == EventType.STEP_START:
-            starts[step_name] = timestamp
-        elif (
-            event_type in (EventType.STEP_END, EventType.STEP_ERROR)
-            and step_name in starts
+            starts.setdefault(step_name, []).append(timestamp)
+        elif event_type in (EventType.STEP_END, EventType.STEP_ERROR) and starts.get(
+            step_name
         ):
-            start_ts = starts.pop(step_name)
+            start_ts = starts[step_name].pop()
+            if not starts[step_name]:
+                del starts[step_name]
             duration = _compute_duration(start_ts, timestamp)
             status = "success" if event_type == EventType.STEP_END else "error"
             spans.append(StepSpan(step_name, start_ts, timestamp, duration, status))

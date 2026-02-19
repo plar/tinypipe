@@ -46,6 +46,7 @@ class RunnerConfig(Generic[StateT, ContextT]):
     cancellation_token: CancellationToken | None = None
     failure_classification: FailureClassificationConfig | None = None
     pipe_metadata: dict[str, Any] | None = None
+    max_retries: int = 100
 
 
 @dataclass(slots=True)

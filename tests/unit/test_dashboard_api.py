@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -195,7 +195,7 @@ class TestCompare:
 class TestGetStats:
     def test_basic(self, tmp_path: Path) -> None:
         """Stats require recent runs (within days window)."""
-        now = datetime.now()
+        now = datetime.now(tz=timezone.utc)
         backend = _setup_pipeline(tmp_path, "stat1", "stat_pipeline")
         backend.save_run(
             make_run(

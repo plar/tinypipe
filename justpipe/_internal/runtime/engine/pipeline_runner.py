@@ -122,8 +122,10 @@ class _PipelineRunner(Generic[StateT, ContextT]):
             self._invoker,
             self._orch,
         )
-        self._orch._step_execution = self._step_execution
-        self._orch._failure_handler = self._failure_handler
+        self._orch.wire(
+            step_execution=self._step_execution,
+            failure_handler=self._failure_handler,
+        )
 
         self._barriers = _BarrierManager(
             self._orch,
@@ -142,6 +144,7 @@ class _PipelineRunner(Generic[StateT, ContextT]):
             self._failure_handler,
             self._scheduler,
             self._plan.steps,
+            max_retries=config.max_retries,
         )
 
     async def _process_queue(self) -> AsyncGenerator[Event, None]:
@@ -208,11 +211,16 @@ class _PipelineRunner(Generic[StateT, ContextT]):
             map_complete = Event(
                 EventType.MAP_COMPLETE,
                 item.owner,
-                completion,
+                {
+                    "target": completion.target,
+                    "item_count": completion.item_count,
+                    "owner_invocation_id": completion.owner_invocation_id,
+                    "owner_scope": completion.owner_scope,
+                },
                 node_kind=NodeKind.MAP,
-                invocation_id=completion.get("owner_invocation_id"),
-                owner_invocation_id=completion.get("owner_invocation_id"),
-                scope=tuple(completion.get("owner_scope", ())),
+                invocation_id=completion.owner_invocation_id,
+                owner_invocation_id=completion.owner_invocation_id,
+                scope=tuple(completion.owner_scope),
             )
             yield await self._publish(map_complete)
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter, defaultdict
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 
 from justpipe.cli.formatting import format_duration
 from justpipe.cli.registry import PipelineRegistry
@@ -17,7 +17,7 @@ def stats_command(
     days: int = 7,
 ) -> None:
     """Show pipeline statistics."""
-    cutoff = datetime.now() - timedelta(days=days)
+    cutoff = datetime.now(tz=timezone.utc) - timedelta(days=days)
 
     all_runs = registry.list_all_runs(pipeline_name=pipeline, limit=MAX_QUERY_LIMIT)
 
@@ -121,7 +121,7 @@ def stats_command(
         daily_counts[day] += 1
 
     print(f"Daily Activity (last {days} days):")
-    today = datetime.now().date()
+    today = datetime.now(tz=timezone.utc).date()
     for i in range(days):
         day = today - timedelta(days=i)
         count = daily_counts.get(day, 0)
@@ -144,7 +144,7 @@ def stats_command(
         print()
         print("Most Recent Errors:")
         for a in error_runs[:3]:
-            time_ago = datetime.now() - a.run.start_time
+            time_ago = datetime.now(tz=timezone.utc) - a.run.start_time
             if time_ago.days > 0:
                 time_str = f"{time_ago.days}d ago"
             elif time_ago.seconds > 3600:

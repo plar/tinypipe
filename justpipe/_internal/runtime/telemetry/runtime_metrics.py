@@ -113,7 +113,17 @@ class _RuntimeMetricsRecorder:
             entry = self._step_start_times.pop(key, None)
             if entry is not None:
                 stage, start = entry
-                duration = max(0.0, event.timestamp - start)
+                # Prefer monotonic duration from step meta when available
+                meta_duration = None
+                if isinstance(event.meta, dict):
+                    fw = event.meta.get("framework")
+                    if isinstance(fw, dict):
+                        meta_duration = fw.get("duration_s")
+                duration = (
+                    meta_duration
+                    if meta_duration is not None
+                    else max(0.0, event.timestamp - start)
+                )
                 step_stats = self._step_stats[stage]
                 step_stats.count += 1
                 step_stats.total += duration

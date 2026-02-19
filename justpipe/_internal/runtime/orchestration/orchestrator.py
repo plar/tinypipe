@@ -37,9 +37,25 @@ class _Orchestrator(Generic[StateT, ContextT], TaskOrchestrator[StateT, ContextT
         self._kernel = kernel
         self._tracker = tracker
         self._metrics = metrics
-        # Set post-construction by _PipelineRunner to break cyclic dependency.
-        self._step_execution: _StepExecutionCoordinator[StateT, ContextT] = None  # type: ignore[assignment]
-        self._failure_handler: _FailureHandler = None  # type: ignore[assignment]
+        # Set via wire() by _PipelineRunner to break cyclic dependency.
+        self._step_execution: _StepExecutionCoordinator[StateT, ContextT] | None = None
+        self._failure_handler: _FailureHandler | None = None
+
+    def wire(
+        self,
+        *,
+        step_execution: _StepExecutionCoordinator[StateT, ContextT],
+        failure_handler: _FailureHandler,
+    ) -> None:
+        """Wire cyclic dependencies. Must be called exactly once after construction."""
+        if self._step_execution is not None:
+            raise RuntimeError("Orchestrator already wired")
+        self._step_execution = step_execution
+        self._failure_handler = failure_handler
+
+    def _ensure_wired(self) -> None:
+        if self._step_execution is None or self._failure_handler is None:
+            raise RuntimeError("Orchestrator not wired — call wire() first")
 
     # --- StateContextView ---
     @property
@@ -126,6 +142,8 @@ class _Orchestrator(Generic[StateT, ContextT], TaskOrchestrator[StateT, ContextT
         invocation: InvocationContext | None = None,
         step_meta: dict[str, Any] | None = None,
     ) -> None:
+        self._ensure_wired()
+        assert self._step_execution is not None  # narrowing for mypy
         await self._step_execution.fail_step(
             name, owner, error, track_owner, invocation=invocation, step_meta=step_meta
         )
@@ -177,6 +195,8 @@ class _Orchestrator(Generic[StateT, ContextT], TaskOrchestrator[StateT, ContextT
         owner_invocation_id: str | None = None,
         scope: tuple[str, ...] = (),
     ) -> None:
+        self._ensure_wired()
+        assert self._step_execution is not None  # narrowing for mypy
         if invocation is None:
             invocation_id = self._ctx.next_invocation_id()
             resolved_owner_invocation_id = owner_invocation_id or invocation_id
@@ -208,6 +228,8 @@ class _Orchestrator(Generic[StateT, ContextT], TaskOrchestrator[StateT, ContextT
         invocation: InvocationContext | None = None,
         step_meta: dict[str, Any] | None = None,
     ) -> None:
+        self._ensure_wired()
+        assert self._failure_handler is not None  # narrowing for mypy
         await self._failure_handler.handle_failure(
             name,
             owner,

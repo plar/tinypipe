@@ -7,7 +7,7 @@ import dataclasses
 import json
 import logging
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Any
 
@@ -91,6 +91,7 @@ class _AutoPersistenceObserver(Observer):
         self._flushed_count: int = 0
         self._run_id: str | None = None
         self._start_time: float = 0
+        self._finish_snapshot: dict[str, Any] | None = None
 
     async def on_pipeline_start(
         self, state: Any, context: Any, meta: ObserverMeta
@@ -99,15 +100,24 @@ class _AutoPersistenceObserver(Observer):
         self._flushed_count = 0
         self._run_id = meta.run_id
         self._start_time = time.time()
+        self._finish_snapshot = None
 
     async def on_event(
         self, state: Any, context: Any, meta: ObserverMeta, event: Event
     ) -> None:
         try:
-            self._events.append(_serialize_event(event))
+            serialized = _serialize_event(event)
+            self._events.append(serialized)
         except Exception as exc:
             logger.warning("Failed to serialize event: %s", exc)
             return
+
+        # Eagerly capture FINISH metadata so it survives intermediate flushes.
+        if event.type == EventType.FINISH:
+            try:
+                self._finish_snapshot = json.loads(serialized)
+            except (json.JSONDecodeError, ValueError):
+                pass
 
         if (
             self._flush_interval
@@ -150,35 +160,33 @@ class _AutoPersistenceObserver(Observer):
             return
 
         try:
-            # Extract terminal info from FINISH event if present
+            # Extract terminal info from eagerly captured FINISH snapshot.
             status = PipelineTerminalStatus.SUCCESS
             error_message: str | None = None
             error_step: str | None = None
             run_meta: str | None = None
             end_time = time.time()
-            actual_duration = duration_s or (end_time - self._start_time)
+            actual_duration = (
+                duration_s if duration_s is not None else (end_time - self._start_time)
+            )
 
-            # The FINISH event is always the last event in the buffer.
-            if self._events:
-                parsed = json.loads(self._events[-1])
-                if parsed.get("type") == EventType.FINISH.value and isinstance(
-                    parsed.get("payload"), dict
-                ):
-                    payload = parsed["payload"]
-                    status_val = payload.get("status")
-                    if status_val:
-                        try:
-                            status = PipelineTerminalStatus(status_val)
-                        except ValueError:
-                            pass
-                    error_message = payload.get("error")
-                    error_step = payload.get("failed_step")
-                    raw_meta = parsed.get("meta")
-                    if raw_meta:
-                        run_meta = json.dumps(raw_meta)
-                    dur = payload.get("duration_s")
-                    if dur is not None:
-                        actual_duration = dur
+            parsed = self._finish_snapshot
+            if parsed is not None and isinstance(parsed.get("payload"), dict):
+                payload = parsed["payload"]
+                status_val = payload.get("status")
+                if status_val:
+                    try:
+                        status = PipelineTerminalStatus(status_val)
+                    except ValueError:
+                        pass
+                error_message = payload.get("error")
+                error_step = payload.get("failed_step")
+                raw_meta = parsed.get("meta")
+                if raw_meta:
+                    run_meta = json.dumps(raw_meta)
+                dur = payload.get("duration_s")
+                if dur is not None:
+                    actual_duration = dur
 
             if error and status == PipelineTerminalStatus.SUCCESS:
                 status = PipelineTerminalStatus.FAILED
@@ -186,8 +194,8 @@ class _AutoPersistenceObserver(Observer):
 
             run = RunRecord(
                 run_id=self._run_id,
-                start_time=datetime.fromtimestamp(self._start_time),
-                end_time=datetime.fromtimestamp(end_time),
+                start_time=datetime.fromtimestamp(self._start_time, tz=timezone.utc),
+                end_time=datetime.fromtimestamp(end_time, tz=timezone.utc),
                 duration=timedelta(seconds=actual_duration),
                 status=status,
                 error_message=error_message,
@@ -209,8 +217,8 @@ class _AutoPersistenceObserver(Observer):
             else:
                 await asyncio.to_thread(self._backend.save_run, run, self._events)
 
-            # Write pipeline.json alongside the DB
-            self._write_pipeline_json()
+            # Write pipeline.json alongside the DB (off event loop)
+            await asyncio.to_thread(self._write_pipeline_json)
 
         except Exception as exc:
             logger.warning(
@@ -223,6 +231,7 @@ class _AutoPersistenceObserver(Observer):
             self._events = []
             self._flushed_count = 0
             self._run_id = None
+            self._finish_snapshot = None
 
     def _write_pipeline_json(self) -> None:
         """Write pipeline descriptor alongside the storage."""

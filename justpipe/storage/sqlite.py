@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from justpipe.storage.interface import RunRecord, StoredEvent
@@ -75,28 +75,52 @@ class SQLiteBackend:
         conn = self._connect()
         try:
             # If a placeholder row exists from append_events (status='running'),
-            # replace it. Otherwise use plain INSERT to detect true duplicates.
+            # UPDATE it in place.  INSERT OR REPLACE would trigger ON DELETE
+            # CASCADE and destroy already-flushed events.
             placeholder = conn.execute(
                 "SELECT 1 FROM runs WHERE run_id = ? AND status = 'running'",
                 (run.run_id,),
             ).fetchone()
-            verb = "INSERT OR REPLACE" if placeholder else "INSERT"
-            conn.execute(
-                f"""{verb} INTO runs
-                   (run_id, start_time, end_time, duration_s, status,
-                    error_message, error_step, run_meta)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    run.run_id,
-                    run.start_time.timestamp(),
-                    run.end_time.timestamp() if run.end_time else None,
-                    run.duration.total_seconds() if run.duration else None,
-                    run.status.value,
-                    run.error_message,
-                    run.error_step,
-                    run.run_meta,
-                ),
-            )
+
+            start_ts = run.start_time.timestamp()
+            end_ts = run.end_time.timestamp() if run.end_time else None
+            duration_s = run.duration.total_seconds() if run.duration else None
+
+            if placeholder:
+                conn.execute(
+                    """UPDATE runs
+                       SET start_time = ?, end_time = ?, duration_s = ?,
+                           status = ?, error_message = ?, error_step = ?,
+                           run_meta = ?
+                       WHERE run_id = ?""",
+                    (
+                        start_ts,
+                        end_ts,
+                        duration_s,
+                        run.status.value,
+                        run.error_message,
+                        run.error_step,
+                        run.run_meta,
+                        run.run_id,
+                    ),
+                )
+            else:
+                conn.execute(
+                    """INSERT INTO runs
+                       (run_id, start_time, end_time, duration_s, status,
+                        error_message, error_step, run_meta)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (
+                        run.run_id,
+                        start_ts,
+                        end_ts,
+                        duration_s,
+                        run.status.value,
+                        run.error_message,
+                        run.error_step,
+                        run.run_meta,
+                    ),
+                )
             for seq, data in enumerate(events, start=1):
                 parsed = json.loads(data)
                 conn.execute(
@@ -229,9 +253,9 @@ class SQLiteBackend:
     def _row_to_run(row: sqlite3.Row) -> RunRecord:
         return RunRecord(
             run_id=row["run_id"],
-            start_time=datetime.fromtimestamp(row["start_time"]),
+            start_time=datetime.fromtimestamp(row["start_time"], tz=timezone.utc),
             end_time=(
-                datetime.fromtimestamp(row["end_time"])
+                datetime.fromtimestamp(row["end_time"], tz=timezone.utc)
                 if row["end_time"] is not None
                 else None
             ),
@@ -252,7 +276,7 @@ class SQLiteBackend:
     def _row_to_event(row: sqlite3.Row) -> StoredEvent:
         return StoredEvent(
             seq=row["seq"],
-            timestamp=datetime.fromtimestamp(row["timestamp"]),
+            timestamp=datetime.fromtimestamp(row["timestamp"], tz=timezone.utc),
             event_type=EventType(row["event_type"]),
             step_name=row["step_name"] or "",
             data=row["data"],

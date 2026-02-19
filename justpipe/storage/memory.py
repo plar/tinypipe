@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 
 from justpipe.storage.interface import RunRecord, StoredEvent
 from justpipe.types import EventType, PipelineTerminalStatus
@@ -66,7 +66,9 @@ class InMemoryBackend:
             result.append(
                 StoredEvent(
                     seq=seq,
-                    timestamp=datetime.fromtimestamp(parsed.get("timestamp", 0)),
+                    timestamp=datetime.fromtimestamp(
+                        parsed.get("timestamp", 0), tz=timezone.utc
+                    ),
                     event_type=event_type_val,
                     step_name=parsed.get("stage", ""),
                     data=data_str,

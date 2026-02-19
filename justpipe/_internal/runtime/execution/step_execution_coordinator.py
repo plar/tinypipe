@@ -97,33 +97,53 @@ class _StepExecutionCoordinator(Generic[StateT, ContextT]):
             )
         elapsed = 0.0
         step_meta_obj = _ScopedMeta()
+        user_error: Exception | None = None
+        result = None
+
+        await self._emit_with_context(
+            EventType.STEP_START,
+            name,
+            None,
+            node_kind=invocation.node_kind,
+            invocation=invocation,
+        )
+
+        token = _current_step_meta_var.set(step_meta_obj)
+        t0 = time.monotonic()
         try:
-            await self._emit_with_context(
-                EventType.STEP_START,
+            result = await self._invoker.execute(
                 name,
-                None,
-                node_kind=invocation.node_kind,
-                invocation=invocation,
+                self._orch,
+                self._orch.state,
+                self._orch.context,
+                payload,
             )
-            token = _current_step_meta_var.set(step_meta_obj)
-            t0 = time.monotonic()
-            try:
-                result = await self._invoker.execute(
-                    name,
-                    self._orch,
-                    self._orch.state,
-                    self._orch.context,
-                    payload,
-                )
-            finally:
-                elapsed = time.monotonic() - t0
-                _current_step_meta_var.reset(token)
-            step_meta_obj._set_framework(
-                duration_s=round(elapsed, 6),
-                attempt=invocation.attempt,
-                status="success",
+        except Exception as exc:
+            user_error = exc
+        finally:
+            elapsed = time.monotonic() - t0
+            _current_step_meta_var.reset(token)
+
+        status = "error" if user_error else "success"
+        step_meta_obj._set_framework(
+            duration_s=round(elapsed, 6),
+            attempt=invocation.attempt,
+            status=status,
+        )
+        snapshot = step_meta_obj._snapshot() or None
+
+        if user_error:
+            await self._orch.handle_execution_failure(
+                name,
+                owner,
+                user_error,
+                payload,
+                self._orch.state,
+                self._orch.context,
+                invocation,
+                step_meta=snapshot,
             )
-            snapshot = step_meta_obj._snapshot() or None
+        else:
             await self._orch.complete_step(
                 name,
                 owner,
@@ -132,23 +152,6 @@ class _StepExecutionCoordinator(Generic[StateT, ContextT]):
                 True,
                 invocation,
                 False,
-                step_meta=snapshot,
-            )
-        except Exception as error:
-            step_meta_obj._set_framework(
-                duration_s=round(elapsed, 6),
-                attempt=invocation.attempt,
-                status="error",
-            )
-            snapshot = step_meta_obj._snapshot() or None
-            await self._orch.handle_execution_failure(
-                name,
-                owner,
-                error,
-                payload,
-                self._orch.state,
-                self._orch.context,
-                invocation,
                 step_meta=snapshot,
             )
 

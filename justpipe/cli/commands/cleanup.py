@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from justpipe.cli.formatting import format_timestamp
 from justpipe.cli.registry import AnnotatedRun, PipelineRegistry
@@ -36,7 +36,7 @@ def cleanup_command(
     # Calculate cutoff datetime if older_than_days specified
     cutoff: datetime | None = None
     if older_than_days is not None:
-        cutoff = datetime.now() - timedelta(days=older_than_days)
+        cutoff = datetime.now(tz=timezone.utc) - timedelta(days=older_than_days)
 
     # Sort by start time (newest first)
     all_runs.sort(key=lambda a: a.run.start_time, reverse=True)
