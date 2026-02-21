@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import type { Comparison } from '@/types'
+import type { Comparison, TimelineEntry } from '@/types'
 import { api } from '@/api/client'
 import { formatDuration, shortId } from '@/lib/utils'
 import MetricTile from '@/components/ui/MetricTile.vue'
 import Badge from '@/components/ui/Badge.vue'
 import LoadingState from '@/components/ui/LoadingState.vue'
 import ErrorBanner from '@/components/ui/ErrorBanner.vue'
+import RunAutocomplete from '@/components/ui/RunAutocomplete.vue'
 import { AlertTriangle } from 'lucide-vue-next'
 
 const route = useRoute()
@@ -19,18 +20,35 @@ const comparison = ref<Comparison | null>(null)
 const loading = ref(false)
 const error = ref('')
 
+// Timeline overlay data
+const timeline1 = ref<TimelineEntry[]>([])
+const timeline2 = ref<TimelineEntry[]>([])
+const timelineLoading = ref(false)
+
 async function doCompare() {
   if (!run1Input.value || !run2Input.value) return
   loading.value = true
   error.value = ''
   comparison.value = null
+  timeline1.value = []
+  timeline2.value = []
   try {
     router.replace({ query: { run1: run1Input.value, run2: run2Input.value } })
     comparison.value = await api.compare(run1Input.value, run2Input.value)
+
+    // Fetch timelines for overlay
+    timelineLoading.value = true
+    const [t1, t2] = await Promise.all([
+      api.getTimeline(comparison.value.run1_id),
+      api.getTimeline(comparison.value.run2_id),
+    ])
+    timeline1.value = t1
+    timeline2.value = t2
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
   } finally {
     loading.value = false
+    timelineLoading.value = false
   }
 }
 
@@ -76,6 +94,30 @@ const firstDivergence = computed(() => {
       : `${formatDuration(Math.abs(diff))} faster`,
   }
 })
+
+// Timeline overlay computeds
+const allStepNames = computed(() => {
+  const names = new Set<string>()
+  for (const e of timeline1.value) names.add(e.step_name)
+  for (const e of timeline2.value) names.add(e.step_name)
+  return Array.from(names)
+})
+
+const maxDuration = computed(() => {
+  let max = 0
+  for (const e of timeline1.value) max = Math.max(max, e.duration_seconds)
+  for (const e of timeline2.value) max = Math.max(max, e.duration_seconds)
+  return max || 1
+})
+
+function getStepEntry(timeline: TimelineEntry[], stepName: string): TimelineEntry | undefined {
+  return timeline.find(e => e.step_name === stepName)
+}
+
+function stepDiff(stepName: string): number | null {
+  if (!comparison.value) return null
+  return comparison.value.step_timing_diff[stepName] ?? null
+}
 </script>
 
 <template>
@@ -88,19 +130,15 @@ const firstDivergence = computed(() => {
     <!-- Input form -->
     <div class="mt-6 flex items-end gap-3">
       <div class="flex-1">
-        <label class="mb-1 block text-xs font-medium uppercase tracking-wider text-muted-foreground">Run 1 (baseline)</label>
-        <input
+        <RunAutocomplete
           v-model="run1Input"
-          class="w-full rounded-md border border-border bg-input px-3 py-2 font-mono text-sm text-foreground placeholder:text-muted-foreground"
-          placeholder="Run ID or prefix..."
+          label="Run 1 (baseline)"
         />
       </div>
       <div class="flex-1">
-        <label class="mb-1 block text-xs font-medium uppercase tracking-wider text-muted-foreground">Run 2 (compare)</label>
-        <input
+        <RunAutocomplete
           v-model="run2Input"
-          class="w-full rounded-md border border-border bg-input px-3 py-2 font-mono text-sm text-foreground placeholder:text-muted-foreground"
-          placeholder="Run ID or prefix..."
+          label="Run 2 (compare)"
         />
       </div>
       <button
@@ -161,6 +199,63 @@ const firstDivergence = computed(() => {
             label="Event Count Diff"
             :value="(comparison.event_count_diff > 0 ? '+' : '') + comparison.event_count_diff"
           />
+        </div>
+
+        <!-- Timeline Overlay -->
+        <div v-if="allStepNames.length > 0" class="overflow-hidden rounded-lg border border-border">
+          <h3 class="border-b border-border bg-card px-4 py-3 text-sm font-medium text-foreground">
+            Timeline Comparison
+          </h3>
+          <div class="divide-y divide-border">
+            <div v-for="step in allStepNames" :key="step" class="px-4 py-2.5">
+              <div class="mb-1.5 flex items-center justify-between">
+                <span class="font-mono text-xs text-foreground">
+                  <AlertTriangle v-if="firstDivergence?.step === step" class="mr-1 inline h-3 w-3 text-warning" />
+                  {{ step }}
+                </span>
+                <span
+                  v-if="stepDiff(step) !== null"
+                  class="text-xs font-mono tabular-nums"
+                  :class="stepDiff(step)! > 0.001 ? 'text-destructive' : stepDiff(step)! < -0.001 ? 'text-success' : 'text-muted-foreground'"
+                >
+                  {{ stepDiff(step)! > 0 ? '+' : '' }}{{ stepDiff(step)!.toFixed(3) }}s
+                </span>
+              </div>
+              <!-- Run 1 bar -->
+              <div class="mb-1 flex items-center gap-2">
+                <span class="w-8 text-[10px] text-muted-foreground">R1</span>
+                <div class="flex-1">
+                  <div class="h-3 overflow-hidden rounded bg-muted">
+                    <div
+                      v-if="getStepEntry(timeline1, step)"
+                      class="h-full rounded bg-info/70"
+                      :style="{ width: (getStepEntry(timeline1, step)!.duration_seconds / maxDuration * 100) + '%' }"
+                    />
+                  </div>
+                </div>
+                <span class="w-16 text-right text-[10px] font-mono tabular-nums text-muted-foreground">
+                  {{ getStepEntry(timeline1, step) ? formatDuration(getStepEntry(timeline1, step)!.duration_seconds) : '-' }}
+                </span>
+              </div>
+              <!-- Run 2 bar -->
+              <div class="flex items-center gap-2">
+                <span class="w-8 text-[10px] text-muted-foreground">R2</span>
+                <div class="flex-1">
+                  <div class="h-3 overflow-hidden rounded bg-muted">
+                    <div
+                      v-if="getStepEntry(timeline2, step)"
+                      class="h-full rounded"
+                      :class="stepDiff(step) !== null && stepDiff(step)! > 0.001 ? 'bg-destructive/60' : stepDiff(step) !== null && stepDiff(step)! < -0.001 ? 'bg-success/60' : 'bg-info/70'"
+                      :style="{ width: (getStepEntry(timeline2, step)!.duration_seconds / maxDuration * 100) + '%' }"
+                    />
+                  </div>
+                </div>
+                <span class="w-16 text-right text-[10px] font-mono tabular-nums text-muted-foreground">
+                  {{ getStepEntry(timeline2, step) ? formatDuration(getStepEntry(timeline2, step)!.duration_seconds) : '-' }}
+                </span>
+              </div>
+            </div>
+          </div>
         </div>
 
         <!-- Step timing diff table -->

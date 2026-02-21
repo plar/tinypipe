@@ -73,6 +73,14 @@ export const usePipelinesStore = defineStore('pipelines', () => {
     return runsCache.value[hash] ?? []
   }
 
+  async function fetchMoreRuns(hash: string, params?: { status?: string; limit?: number }) {
+    const current = runsCache.value[hash] ?? []
+    const limit = params?.limit ?? 50
+    const more = await api.listRuns(hash, { ...params, limit, offset: current.length })
+    runsCache.value[hash] = [...current, ...more]
+    return more.length
+  }
+
   function getStats(hash: string) {
     return statsCache.value[hash] ?? null
   }
@@ -90,6 +98,7 @@ export const usePipelinesStore = defineStore('pipelines', () => {
     fetchStats,
     getDetail,
     getRuns,
+    fetchMoreRuns,
     getStats,
   }
 })

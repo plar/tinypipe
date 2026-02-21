@@ -23,7 +23,7 @@ import DagCanvasPixi from '@/components/dag/DagCanvasPixi.vue'
 import DagLegend from '@/components/dag/DagLegend.vue'
 import ReplayControls from '@/components/replay/ReplayControls.vue'
 import ArtifactBrowser from '@/components/artifacts/ArtifactBrowser.vue'
-import { ArrowLeft, ChevronRight, GitCompareArrows } from 'lucide-vue-next'
+import { ArrowLeft, ChevronRight, GitCompareArrows, Download } from 'lucide-vue-next'
 
 const route = useRoute()
 const router = useRouter()
@@ -31,8 +31,7 @@ const runStore = useRunStore()
 const replay = useReplayStore()
 
 const runId = computed(() => route.params.id as string)
-const activeTab = ref('timeline')
-const eventTypeFilter = ref('')
+const activeTab = ref((route.query.tab as string) || 'timeline')
 const expandedEvents = ref<Set<number>>(new Set())
 const selectedStep = ref<string | null>(null)
 
@@ -52,7 +51,7 @@ const tabs = [
 // Keyboard shortcuts
 useKeyboard({
   tabKeys: tabs.map((t) => t.key),
-  onTab: (key) => { activeTab.value = key },
+  onTab: (key) => { switchTab(key) },
   onEscape: () => { selectedStep.value = null },
 })
 
@@ -84,15 +83,29 @@ const eventTypeRows = computed(() => {
     .sort(([, a], [, b]) => b - a)
 })
 
-const filteredEvents = computed(() => {
-  if (!eventTypeFilter.value) return runStore.events
-  return runStore.events.filter((e) => e.event_type === eventTypeFilter.value)
-})
-
+// Event type filter chips
+const eventTypeFilter = ref<Set<string>>(new Set())
+const EVENT_TYPE_ORDER: Record<string, number> = {
+  start: 0,
+  step_start: 1, step_end: 2, step_error: 3,
+  map_start: 4, map_worker: 5, map_complete: 6,
+  barrier_wait: 7, barrier_release: 8,
+  token: 9, suspend: 10, timeout: 11, cancelled: 12, finish: 13,
+}
 const eventTypes = computed(() => {
   const types = new Set(runStore.events.map((e) => e.event_type))
-  return Array.from(types).sort()
+  return Array.from(types).sort((a, b) => (EVENT_TYPE_ORDER[a] ?? 99) - (EVENT_TYPE_ORDER[b] ?? 99))
 })
+const filteredEvents = computed(() => {
+  if (eventTypeFilter.value.size === 0) return runStore.events
+  return runStore.events.filter((e) => eventTypeFilter.value.has(e.event_type))
+})
+function toggleEventType(type: string) {
+  const next = new Set(eventTypeFilter.value)
+  if (next.has(type)) next.delete(type)
+  else next.add(type)
+  eventTypeFilter.value = next
+}
 
 // Inspector data
 const inspectorOpen = computed(() => selectedStep.value !== null)
@@ -121,8 +134,28 @@ function toggleEvent(seq: number) {
   }
 }
 
+function switchTab(tab: string) {
+  activeTab.value = tab
+  router.replace({ query: { ...route.query, tab } })
+}
+
 function goToCompare() {
   router.push({ path: '/compare', query: { run1: runId.value } })
+}
+
+async function exportRun() {
+  try {
+    const data = await api.exportRun(runId.value)
+    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `run-${runId.value.slice(0, 12)}.json`
+    a.click()
+    URL.revokeObjectURL(url)
+  } catch {
+    // silently fail — non-critical
+  }
 }
 
 // Load replay data when switching to replay tab
@@ -171,13 +204,22 @@ onBeforeUnmount(() => {
             <ArrowLeft class="h-3.5 w-3.5" />
             {{ runStore.run.pipeline_name }}
           </RouterLink>
-          <button
-            class="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent/30 hover:text-foreground"
-            @click="goToCompare"
-          >
-            <GitCompareArrows class="h-3.5 w-3.5" />
-            Compare with...
-          </button>
+          <div class="flex items-center gap-2">
+            <button
+              class="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              @click="exportRun"
+            >
+              <Download class="h-3.5 w-3.5" />
+              Export JSON
+            </button>
+            <button
+              class="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+              @click="goToCompare"
+            >
+              <GitCompareArrows class="h-3.5 w-3.5" />
+              Compare with...
+            </button>
+          </div>
         </div>
 
         <div class="mt-2 flex items-center gap-3">
@@ -205,7 +247,7 @@ onBeforeUnmount(() => {
 
       <!-- Tabs -->
       <div class="mb-6">
-        <TabBar :tabs="tabs" :active="activeTab" @select="activeTab = $event" />
+        <TabBar :tabs="tabs" :active="activeTab" @select="switchTab" />
       </div>
 
       <!-- Timeline Tab -->
@@ -226,14 +268,27 @@ onBeforeUnmount(() => {
       <!-- Events Tab -->
       <div v-if="activeTab === 'events'">
         <div class="mb-4 flex items-center gap-3">
-          <select
-            v-model="eventTypeFilter"
-            class="rounded-md border border-border bg-input px-3 py-1.5 text-sm text-foreground"
+          <div class="flex flex-wrap gap-1.5 rounded-lg bg-muted/50 p-1.5">
+            <button
+              v-for="t in eventTypes"
+              :key="t"
+              class="rounded-md px-2.5 py-1 text-xs font-mono transition-colors"
+              :class="eventTypeFilter.has(t) ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'"
+              @click="toggleEventType(t)"
+            >
+              {{ t }}
+            </button>
+          </div>
+          <span class="text-xs text-muted-foreground whitespace-nowrap">
+            {{ filteredEvents.length }} event(s)<template v-if="eventTypeFilter.size > 0"> matching {{ eventTypeFilter.size }} filter(s)</template>
+          </span>
+          <button
+            v-if="eventTypeFilter.size > 0"
+            class="rounded-md border border-border bg-card px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground transition-colors whitespace-nowrap"
+            @click="eventTypeFilter = new Set()"
           >
-            <option value="">All types</option>
-            <option v-for="t in eventTypes" :key="t" :value="t">{{ t }}</option>
-          </select>
-          <span class="text-xs text-muted-foreground">{{ filteredEvents.length }} event(s)</span>
+            Clear
+          </button>
         </div>
 
         <div class="divide-y divide-border overflow-hidden rounded-lg border border-border">

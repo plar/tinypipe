@@ -49,7 +49,7 @@ const durationBeforeFailure = computed(() => {
 </script>
 
 <template>
-  <div class="mb-6 rounded-lg border border-destructive/30 bg-destructive/5 p-5">
+  <div class="mb-6 rounded-lg border border-destructive/30 bg-card p-5">
     <!-- Header -->
     <div class="flex items-start gap-3">
       <div class="mt-0.5 rounded-md bg-destructive/15 p-1.5">

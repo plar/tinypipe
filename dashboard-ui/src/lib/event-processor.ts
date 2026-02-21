@@ -108,7 +108,7 @@ export function processEvents(events: PipelineEvent[]): ProcessedStep[] {
  * payload nested at `data.payload`.
  */
 export function extractFinishPayload(events: PipelineEvent[]): FinishPayload | null {
-  const finish = events.find(
+  const finish = [...events].reverse().find(
     (e) => e.event_type.toLowerCase() === 'finish' && e.data
   )
   if (!finish?.data) return null

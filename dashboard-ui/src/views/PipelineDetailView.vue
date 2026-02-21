@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, computed, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import type { TopologyNode } from '@/types'
 import { api } from '@/api/client'
 import { processEvents } from '@/lib/event-processor'
@@ -20,18 +20,30 @@ import StatusIndicator from '@/components/ui/StatusIndicator.vue'
 import LoadingState from '@/components/ui/LoadingState.vue'
 import ErrorBanner from '@/components/ui/ErrorBanner.vue'
 import Sparkline from '@/components/ui/Sparkline.vue'
-import { ArrowLeft } from 'lucide-vue-next'
+import CleanupDialog from '@/components/ui/CleanupDialog.vue'
+import { ArrowLeft, Trash2, GitCompareArrows } from 'lucide-vue-next'
 
 const route = useRoute()
+const router = useRouter()
 const store = usePipelinesStore()
 const ui = useUiStore()
 const hash = computed(() => route.params.hash as string)
 
 const loading = ref(true)
 const error = ref('')
-const activeTab = ref('dag')
+const activeTab = ref((route.query.tab as string) || 'dag')
 const statusFilter = ref('')
 const stepStatuses = ref<Record<string, string>>({})
+
+// Cleanup dialog
+const showCleanup = ref(false)
+
+// Select-to-compare
+const selectedRuns = ref<string[]>([])
+
+// Pagination
+const loadingMore = ref(false)
+const hasMore = ref(true)
 
 // Use store for cached data
 const pipeline = computed(() => store.getDetail(hash.value))
@@ -73,13 +85,55 @@ const tabs = [
   { key: 'stats', label: 'Stats' },
 ]
 
+function switchTab(tab: string) {
+  activeTab.value = tab
+  router.replace({ query: { ...route.query, tab } })
+}
+
 async function loadRuns() {
+  selectedRuns.value = []
+  hasMore.value = true
   await store.fetchRuns(hash.value, {
     status: statusFilter.value || undefined,
     limit: 50,
   })
+  if (runs.value.length < 50) hasMore.value = false
 }
 
+async function loadMoreRuns() {
+  loadingMore.value = true
+  try {
+    const count = await store.fetchMoreRuns(hash.value, {
+      status: statusFilter.value || undefined,
+      limit: 50,
+    })
+    if (count < 50) hasMore.value = false
+  } finally {
+    loadingMore.value = false
+  }
+}
+
+// Compare selected runs
+const canCompare = computed(() => selectedRuns.value.length === 2)
+
+function compareSelected() {
+  if (!canCompare.value) return
+  router.push({
+    path: '/compare',
+    query: { run1: selectedRuns.value[0], run2: selectedRuns.value[1] },
+  })
+}
+
+function toggleRunSelection(runId: string) {
+  const idx = selectedRuns.value.indexOf(runId)
+  if (idx >= 0) {
+    selectedRuns.value.splice(idx, 1)
+  } else if (selectedRuns.value.length < 2) {
+    selectedRuns.value.push(runId)
+  }
+}
+
+// Stats computeds
 const statusEntries = computed(() => {
   if (!stats.value) return []
   return Object.entries(stats.value.status_counts).sort(([, a], [, b]) => b - a)
@@ -90,6 +144,38 @@ const dailyActivityData = computed<Array<[string, number]>>(() => {
   return Object.entries(stats.value.daily_activity).sort(([a], [b]) => a.localeCompare(b))
 })
 
+// Duration trend sparkline (computed from runs data)
+const durationTrendData = computed<Array<[string, number]>>(() => {
+  return store.getRuns(hash.value)
+    .filter(r => r.duration_seconds !== null)
+    .reverse() // oldest first
+    .map(r => [shortId(r.run_id, 8), r.duration_seconds!] as [string, number])
+})
+
+// Error heatmap by step
+const failureHotspots = computed(() => {
+  const counts: Record<string, number> = {}
+  for (const run of store.getRuns(hash.value)) {
+    if (run.status === 'failed' && run.error_step) {
+      counts[run.error_step] = (counts[run.error_step] || 0) + 1
+    }
+  }
+  return Object.entries(counts).sort(([, a], [, b]) => b - a)
+})
+
+const maxFailureCount = computed(() => {
+  if (failureHotspots.value.length === 0) return 1
+  return failureHotspots.value[0]![1]
+})
+
+function onCleanupDone(count: number) {
+  if (count > 0) {
+    // Refresh data after cleanup
+    store.fetchRuns(hash.value, { limit: 50 })
+    store.fetchStats(hash.value)
+  }
+}
+
 onMounted(async () => {
   try {
     await Promise.all([
@@ -97,6 +183,8 @@ onMounted(async () => {
       store.fetchRuns(hash.value, { limit: 50 }),
       store.fetchStats(hash.value),
     ])
+
+    if (runs.value.length < 50) hasMore.value = false
 
     // Compute step statuses from latest run's events for DAG coloring
     const r = store.getRuns(hash.value)
@@ -125,12 +213,15 @@ watch(hash, async (newHash) => {
   loading.value = true
   error.value = ''
   stepStatuses.value = {}
+  selectedRuns.value = []
+  hasMore.value = true
   try {
     await Promise.all([
       store.fetchDetail(newHash),
       store.fetchRuns(newHash, { limit: 50 }),
       store.fetchStats(newHash),
     ])
+    if (runs.value.length < 50) hasMore.value = false
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
   } finally {
@@ -146,17 +237,26 @@ watch(hash, async (newHash) => {
     <template v-else-if="pipeline">
       <!-- Header -->
       <div class="mb-6">
-        <RouterLink to="/" class="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors">
-          <ArrowLeft class="h-3.5 w-3.5" />
-          Fleet Command
-        </RouterLink>
+        <div class="flex items-center justify-between">
+          <RouterLink to="/" class="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors">
+            <ArrowLeft class="h-3.5 w-3.5" />
+            Fleet Command
+          </RouterLink>
+          <button
+            class="inline-flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+            @click="showCleanup = true"
+          >
+            <Trash2 class="h-3.5 w-3.5" />
+            Cleanup
+          </button>
+        </div>
         <h1 class="mt-2 text-2xl font-semibold text-foreground">{{ pipeline.name }}</h1>
         <p class="mt-0.5 font-mono text-xs text-muted-foreground">{{ pipeline.hash }}</p>
       </div>
 
       <!-- Tabs -->
       <div class="mb-6">
-        <TabBar :tabs="tabs" :active="activeTab" @select="activeTab = $event" />
+        <TabBar :tabs="tabs" :active="activeTab" @select="switchTab" />
       </div>
 
       <!-- DAG Tab (v-show to persist WebGL context) -->
@@ -194,7 +294,9 @@ watch(hash, async (newHash) => {
             <option value="timeout">Timeout</option>
             <option value="cancelled">Cancelled</option>
           </select>
-          <span class="text-xs text-muted-foreground">{{ runs.length }} run(s)</span>
+          <span class="text-xs text-muted-foreground">
+            Showing {{ runs.length }} run(s){{ hasMore ? '+' : '' }}
+          </span>
         </div>
 
         <!-- Runs table -->
@@ -202,6 +304,7 @@ watch(hash, async (newHash) => {
           <table class="w-full text-sm">
             <thead class="bg-muted/50 text-left text-xs uppercase tracking-wider text-muted-foreground">
               <tr>
+                <th class="w-10 px-4 py-3 font-medium"></th>
                 <th class="px-4 py-3 font-medium">Run ID</th>
                 <th class="px-4 py-3 font-medium">Status</th>
                 <th class="px-4 py-3 font-medium">Started</th>
@@ -213,24 +316,72 @@ watch(hash, async (newHash) => {
                 v-for="run in runs"
                 :key="run.run_id"
                 class="cursor-pointer transition-colors hover:bg-accent/30"
-                @click="$router.push(`/run/${run.run_id}`)"
+                :class="{ 'bg-primary/5': selectedRuns.includes(run.run_id) }"
               >
-                <td class="px-4 py-3 font-mono text-xs">{{ shortId(run.run_id) }}</td>
-                <td class="px-4 py-3">
+                <td class="px-4 py-3" @click.stop>
+                  <input
+                    type="checkbox"
+                    :checked="selectedRuns.includes(run.run_id)"
+                    :disabled="!selectedRuns.includes(run.run_id) && selectedRuns.length >= 2"
+                    class="rounded border-border"
+                    @change="toggleRunSelection(run.run_id)"
+                  />
+                </td>
+                <td class="px-4 py-3 font-mono text-xs" @click="$router.push(`/run/${run.run_id}`)">{{ shortId(run.run_id) }}</td>
+                <td class="px-4 py-3" @click="$router.push(`/run/${run.run_id}`)">
                   <div class="flex items-center gap-2">
                     <StatusIndicator :status="run.status" size="sm" />
                     <Badge :variant="statusBadgeVariant(run.status)">{{ run.status }}</Badge>
                   </div>
                 </td>
-                <td class="px-4 py-3 text-muted-foreground">{{ formatTimestamp(run.start_time) }}</td>
-                <td class="px-4 py-3 tabular-nums">{{ formatDuration(run.duration_seconds) }}</td>
+                <td class="px-4 py-3 text-muted-foreground" @click="$router.push(`/run/${run.run_id}`)">{{ formatTimestamp(run.start_time) }}</td>
+                <td class="px-4 py-3 tabular-nums" @click="$router.push(`/run/${run.run_id}`)">{{ formatDuration(run.duration_seconds) }}</td>
               </tr>
               <tr v-if="runs.length === 0">
-                <td colspan="4" class="px-4 py-8 text-center text-muted-foreground">No runs found</td>
+                <td colspan="5" class="px-4 py-8 text-center text-muted-foreground">No runs found</td>
               </tr>
             </tbody>
           </table>
         </div>
+
+        <!-- Load more -->
+        <div v-if="hasMore" class="mt-4 text-center">
+          <button
+            class="rounded-md border border-border px-4 py-1.5 text-sm text-muted-foreground hover:bg-accent/30 hover:text-foreground disabled:opacity-50"
+            :disabled="loadingMore"
+            @click="loadMoreRuns"
+          >
+            {{ loadingMore ? 'Loading...' : 'Load more' }}
+          </button>
+        </div>
+
+        <!-- Floating compare bar -->
+        <Teleport to="body">
+          <Transition name="slide-up">
+            <div
+              v-if="selectedRuns.length > 0"
+              class="fixed bottom-6 left-1/2 z-40 flex -translate-x-1/2 items-center gap-3 rounded-lg border border-border bg-card px-4 py-2.5 shadow-lg"
+            >
+              <span class="text-sm text-muted-foreground">{{ selectedRuns.length }} run(s) selected</span>
+              <button
+                class="rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                :disabled="!canCompare"
+                @click="compareSelected"
+              >
+                <span class="flex items-center gap-1.5">
+                  <GitCompareArrows class="h-3.5 w-3.5" />
+                  Compare
+                </span>
+              </button>
+              <button
+                class="text-xs text-muted-foreground hover:text-foreground"
+                @click="selectedRuns = []"
+              >
+                Clear
+              </button>
+            </div>
+          </Transition>
+        </Teleport>
       </div>
 
       <!-- Stats Tab -->
@@ -278,6 +429,35 @@ watch(hash, async (newHash) => {
           <div class="mt-2 flex justify-between text-[9px] font-mono text-muted-foreground">
             <span>{{ dailyActivityData[0]?.[0] }}</span>
             <span>{{ dailyActivityData[dailyActivityData.length - 1]?.[0] }}</span>
+          </div>
+        </div>
+
+        <!-- Duration Trend -->
+        <div v-if="durationTrendData.length > 1" class="mb-6 rounded-lg border border-border bg-card p-4">
+          <h4 class="border-l-2 border-primary/40 pl-3 mb-3 text-sm font-medium text-foreground">Duration Trend</h4>
+          <Sparkline :data="durationTrendData" :height="48" color="var(--color-warning)" />
+          <div class="mt-2 flex justify-between text-[9px] font-mono text-muted-foreground">
+            <span>{{ durationTrendData[0]?.[0] }}</span>
+            <span>{{ durationTrendData[durationTrendData.length - 1]?.[0] }}</span>
+          </div>
+        </div>
+
+        <!-- Failure Hotspots (Error Heatmap by Step) -->
+        <div v-if="failureHotspots.length" class="mb-6 rounded-lg border border-border bg-card p-4">
+          <h4 class="border-l-2 border-primary/40 pl-3 mb-3 text-sm font-medium text-foreground">Failure Hotspots</h4>
+          <div class="space-y-2">
+            <div v-for="[step, count] in failureHotspots" :key="step" class="flex items-center gap-3">
+              <span class="w-40 truncate font-mono text-xs text-muted-foreground">{{ step }}</span>
+              <div class="flex-1">
+                <div class="h-4 overflow-hidden rounded bg-muted">
+                  <div
+                    class="h-full rounded bg-destructive/70 transition-all"
+                    :style="{ width: (count / maxFailureCount * 100) + '%' }"
+                  />
+                </div>
+              </div>
+              <span class="w-10 text-right text-xs font-medium tabular-nums">{{ count }}</span>
+            </div>
           </div>
         </div>
 
@@ -353,6 +533,15 @@ watch(hash, async (newHash) => {
           </div>
         </template>
       </Sidebar>
+
+      <!-- Cleanup Dialog -->
+      <CleanupDialog
+        v-if="showCleanup"
+        :pipeline-hash="hash"
+        :pipeline-name="pipeline.name"
+        @close="showCleanup = false"
+        @cleaned="onCleanupDone"
+      />
     </template>
   </div>
 </template>
@@ -360,5 +549,16 @@ watch(hash, async (newHash) => {
 <style scoped>
 .status-bar {
   transition: width 0.6s ease-out;
+}
+
+.slide-up-enter-active,
+.slide-up-leave-active {
+  transition: all 0.2s ease;
+}
+
+.slide-up-enter-from,
+.slide-up-leave-to {
+  opacity: 0;
+  transform: translate(-50%, 10px);
 }
 </style>

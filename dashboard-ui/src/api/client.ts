@@ -17,6 +17,14 @@ async function get<T>(path: string): Promise<T> {
   return res.json()
 }
 
+async function post<T>(path: string): Promise<T> {
+  const res = await fetch(`${BASE}${path}`, { method: 'POST' })
+  if (!res.ok) {
+    throw new Error(`API ${res.status}: ${res.statusText}`)
+  }
+  return res.json()
+}
+
 export const api = {
   listPipelines(): Promise<PipelineSummary[]> {
     return get('/pipelines')
@@ -57,5 +65,27 @@ export const api = {
 
   getStats(hash: string, days = 7): Promise<Stats> {
     return get(`/stats/${hash}?days=${days}`)
+  },
+
+  async exportRun(runId: string): Promise<{ run: Run; events: PipelineEvent[] }> {
+    const [run, events] = await Promise.all([this.getRun(runId), this.getEvents(runId)])
+    return { run, events }
+  },
+
+  searchRuns(prefix: string, limit = 10): Promise<Run[]> {
+    return get(`/runs/search?q=${encodeURIComponent(prefix)}&limit=${limit}`)
+  },
+
+  cleanupRuns(
+    hash: string,
+    params: { older_than_days?: number; status?: string; keep?: number; dry_run?: boolean }
+  ): Promise<{ count: number; runs: Run[] }> {
+    const qs = new URLSearchParams()
+    if (params.older_than_days != null) qs.set('older_than_days', String(params.older_than_days))
+    if (params.status) qs.set('status', params.status)
+    if (params.keep != null) qs.set('keep', String(params.keep))
+    if (params.dry_run != null) qs.set('dry_run', String(params.dry_run))
+    const q = qs.toString()
+    return post(`/pipelines/${hash}/cleanup${q ? '?' + q : ''}`)
   },
 }

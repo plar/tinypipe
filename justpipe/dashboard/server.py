@@ -79,6 +79,26 @@ def create_app(registry: PipelineRegistry, static_dir: Path) -> FastAPI:
     ) -> dict:
         return _or_404(api.get_stats(pipeline_hash, days), "Pipeline not found")
 
+    @app.get("/api/runs/search")
+    def search_runs(
+        q: str = Query(..., min_length=3),
+        limit: int = Query(default=10, ge=1, le=50),
+    ) -> list[dict]:
+        return api.search_runs(q, limit)
+
+    @app.post("/api/pipelines/{pipeline_hash}/cleanup")
+    def cleanup_runs(
+        pipeline_hash: str,
+        older_than_days: int | None = Query(default=None),
+        status: PipelineTerminalStatus | None = Query(default=None),
+        keep: int = Query(default=10, ge=0),
+        dry_run: bool = Query(default=True),
+    ) -> dict:
+        return _or_404(
+            api.cleanup_runs(pipeline_hash, older_than_days, status, keep, dry_run),
+            "Pipeline not found",
+        )
+
     # Static files — only mount if built assets exist
     assets_dir = static_dir / "assets"
     if assets_dir.is_dir():

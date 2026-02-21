@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, onBeforeUnmount, computed } from 'vue'
 import { usePipelinesStore } from '@/stores/pipelines'
 import { useUiStore } from '@/stores/ui'
 import { formatDuration, relativeTime } from '@/lib/utils'
@@ -10,15 +10,56 @@ import StatusIndicator from '@/components/ui/StatusIndicator.vue'
 import LoadingState from '@/components/ui/LoadingState.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
 import ErrorBanner from '@/components/ui/ErrorBanner.vue'
-import { LayoutGrid, List, ArrowRight } from 'lucide-vue-next'
+import { LayoutGrid, List, ArrowRight, RefreshCw } from 'lucide-vue-next'
 
 const store = usePipelinesStore()
 const ui = useUiStore()
 const search = ref('')
 const searchInputRef = ref<HTMLInputElement | null>(null)
 
+// Auto-refresh
+const refreshInterval = ref(0)
+const lastRefreshed = ref(Date.now())
+let refreshTimer: ReturnType<typeof setInterval> | null = null
+
+function setRefreshInterval(seconds: number) {
+  refreshInterval.value = seconds
+  if (refreshTimer) {
+    clearInterval(refreshTimer)
+    refreshTimer = null
+  }
+  if (seconds > 0) {
+    refreshTimer = setInterval(() => {
+      store.fetchPipelines()
+      lastRefreshed.value = Date.now()
+    }, seconds * 1000)
+  }
+}
+
+function manualRefresh() {
+  store.fetchPipelines()
+  lastRefreshed.value = Date.now()
+}
+
+const timeSinceRefresh = ref('')
+let tickTimer: ReturnType<typeof setInterval> | null = null
+
+function updateTick() {
+  const diff = Math.floor((Date.now() - lastRefreshed.value) / 1000)
+  if (diff < 60) timeSinceRefresh.value = `${diff}s ago`
+  else timeSinceRefresh.value = `${Math.floor(diff / 60)}m ago`
+}
+
 onMounted(() => {
   store.fetchPipelines()
+  lastRefreshed.value = Date.now()
+  tickTimer = setInterval(updateTick, 1000)
+  updateTick()
+})
+
+onBeforeUnmount(() => {
+  if (refreshTimer) clearInterval(refreshTimer)
+  if (tickTimer) clearInterval(tickTimer)
 })
 
 const avgDuration = computed(() => {
@@ -48,21 +89,46 @@ useKeyboard({
           Monitor and inspect all registered pipelines
         </p>
       </div>
-      <div class="flex items-center gap-1 rounded-md border border-border p-0.5">
-        <button
-          class="rounded p-1.5 transition-colors"
-          :class="ui.viewMode === 'cards' ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground'"
-          @click="ui.viewMode = 'cards'"
-        >
-          <LayoutGrid class="h-4 w-4" />
-        </button>
-        <button
-          class="rounded p-1.5 transition-colors"
-          :class="ui.viewMode === 'list' ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground'"
-          @click="ui.viewMode = 'list'"
-        >
-          <List class="h-4 w-4" />
-        </button>
+      <div class="flex items-center gap-3">
+        <!-- Auto-refresh controls -->
+        <div class="flex items-center gap-2">
+          <button
+            class="rounded p-1.5 text-muted-foreground transition-colors hover:text-foreground"
+            title="Refresh now"
+            @click="manualRefresh"
+          >
+            <RefreshCw class="h-4 w-4" :class="{ 'animate-spin': store.loading }" />
+          </button>
+          <select
+            :value="refreshInterval"
+            class="rounded-md border border-border bg-input px-2 py-1 text-xs text-foreground"
+            @change="setRefreshInterval(Number(($event.target as HTMLSelectElement).value))"
+          >
+            <option :value="0">Off</option>
+            <option :value="15">15s</option>
+            <option :value="30">30s</option>
+            <option :value="60">60s</option>
+          </select>
+          <span class="text-[10px] text-muted-foreground tabular-nums">{{ timeSinceRefresh }}</span>
+        </div>
+
+        <!-- View mode toggle -->
+        <div class="flex items-center gap-1 rounded-md border border-border p-0.5">
+          <button
+            class="rounded p-1.5 transition-colors"
+            :class="ui.viewMode === 'cards' ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground'"
+            @click="ui.viewMode = 'cards'"
+          >
+            <LayoutGrid class="h-4 w-4" />
+          </button>
+          <button
+            class="rounded p-1.5 transition-colors"
+            :class="ui.viewMode === 'list' ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground'"
+            @click="ui.viewMode = 'list'"
+          >
+            <List class="h-4 w-4" />
+          </button>
+        </div>
       </div>
     </div>
 
