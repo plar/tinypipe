@@ -27,7 +27,11 @@ class DashboardAPI:
 
     def _find_pipeline(self, pipeline_hash: str) -> PipelineInfo | None:
         return next(
-            (info for info in self._registry.list_pipelines() if info.hash == pipeline_hash),
+            (
+                info
+                for info in self._registry.list_pipelines()
+                if info.hash == pipeline_hash
+            ),
             None,
         )
 

@@ -226,7 +226,9 @@ class SQLiteBackend:
                 query += " AND event_type = ?"
                 params.append(event_type.value)
             query += " ORDER BY seq ASC"
-            return [self._row_to_event(r) for r in conn.execute(query, params).fetchall()]
+            return [
+                self._row_to_event(r) for r in conn.execute(query, params).fetchall()
+            ]
 
     _RUN_ID_SAFE = re.compile(r"^[a-zA-Z0-9\-_]+$")
 

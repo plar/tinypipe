@@ -95,7 +95,7 @@ class _ExecutionLog:
 @dataclass(frozen=True)
 class _ResolvedOutcome:
     status: PipelineTerminalStatus
-    reason: str | None
+    reason: FailureReason | None
     failure_kind: FailureKind
     failure_source: FailureSource
     failed_step: str | None
@@ -108,7 +108,7 @@ def _resolve_outcome(log: _ExecutionLog) -> _ResolvedOutcome:
         FailureRecord(
             kind=f.kind,
             source=f.source,
-            reason=f.reason.value,
+            reason=f.reason,
             error=f.error_message,
             step=f.step,
         )
@@ -119,7 +119,7 @@ def _resolve_outcome(log: _ExecutionLog) -> _ResolvedOutcome:
     if log.terminal_signal is not None:
         return _ResolvedOutcome(
             status=_TERMINAL_SIGNAL_STATUS[log.terminal_signal],
-            reason=log.terminal_reason.value if log.terminal_reason else None,
+            reason=log.terminal_reason,
             failure_kind=FailureKind.NONE,
             failure_source=FailureSource.NONE,
             failed_step=None,
@@ -141,7 +141,7 @@ def _resolve_outcome(log: _ExecutionLog) -> _ResolvedOutcome:
 
         return _ResolvedOutcome(
             status=PipelineTerminalStatus.FAILED,
-            reason=primary.reason.value,
+            reason=primary.reason,
             failure_kind=primary.kind,
             failure_source=primary.source,
             failed_step=primary.step,

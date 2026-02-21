@@ -42,6 +42,56 @@ def run_example(example_name: str) -> subprocess.CompletedProcess[str]:
             ["JUSTPIPE OBSERVABILITY DEMO", "Total Duration:"],
             "pipeline.mmd",
         ),
+        (
+            "03_dynamic_map",
+            ["Running News Summarizer", "Final Report"],
+            "pipeline.mmd",
+        ),
+        (
+            "04_dynamic_routing",
+            ["Final Value: 20", "Final Value: 8"],
+            "pipeline.mmd",
+        ),
+        (
+            "07_streaming",
+            ["Streaming Chatbot", "Full Response"],
+            "pipeline.mmd",
+        ),
+        (
+            "09_middleware",
+            ["Running pipeline with Timing Middleware"],
+            "pipeline.mmd",
+        ),
+        (
+            "10_lifecycle_hooks",
+            ["Connecting to mock database", "Disconnecting"],
+            "pipeline.mmd",
+        ),
+        (
+            "11_visualization",
+            ["Generated Mermaid Code"],
+            "pipeline.mmd",
+        ),
+        (
+            "13_barrier_types",
+            ["Starting fetch for user", "Finalizing decision"],
+            "pipeline.mmd",
+        ),
+        (
+            "14_testing_harness",
+            ["Demo completed successfully!"],
+            "pipeline.mmd",
+        ),
+        (
+            "15_real_llm_streaming",
+            ["Streaming response", "Test passed!"],
+            "pipeline.mmd",
+        ),
+        (
+            "16_dashboard_showcase",
+            ["VIDEO RENDER PIPELINE", "RESULTS"],
+            "pipeline.mmd",
+        ),
     ],
 )
 def test_standard_examples(

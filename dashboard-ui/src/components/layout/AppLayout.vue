@@ -3,7 +3,7 @@ import AppHeader from './AppHeader.vue'
 </script>
 
 <template>
-  <div class="min-h-screen bg-background">
+  <div class="min-h-screen grid-bg">
     <AppHeader />
     <main class="mx-auto max-w-7xl px-6 py-6">
       <slot />

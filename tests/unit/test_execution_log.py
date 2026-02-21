@@ -25,7 +25,7 @@ def test_resolve_outcome_prefers_terminal_signal() -> None:
     resolved = _resolve_outcome(log)
 
     assert resolved.status is PipelineTerminalStatus.TIMEOUT
-    assert resolved.reason == FailureReason.TIMEOUT.value
+    assert resolved.reason is FailureReason.TIMEOUT
     assert resolved.failure_kind is FailureKind.NONE
     assert resolved.pipeline_error is None
     assert len(resolved.errors) == 1
@@ -50,7 +50,7 @@ def test_resolve_outcome_uses_failure_priority() -> None:
     resolved = _resolve_outcome(log)
 
     assert resolved.status is PipelineTerminalStatus.FAILED
-    assert resolved.reason == FailureReason.STARTUP_HOOK_ERROR.value
+    assert resolved.reason is FailureReason.STARTUP_HOOK_ERROR
     assert resolved.failure_kind is FailureKind.STARTUP
 
 
@@ -74,7 +74,7 @@ def test_resolve_outcome_keeps_diagnostics_in_success() -> None:
     diagnostic = FailureRecord(
         kind=FailureKind.INFRA,
         source=FailureSource.FRAMEWORK,
-        reason=FailureReason.CLASSIFIER_ERROR.value,
+        reason=FailureReason.CLASSIFIER_ERROR,
         error="classifier failed",
     )
     log.record_diagnostic(diagnostic)

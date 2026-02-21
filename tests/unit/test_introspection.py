@@ -1,6 +1,7 @@
 import pytest
 from typing import Any
 from justpipe import DefinitionError, Pipe
+from justpipe.types import NodeKind
 
 
 def test_steps_empty_pipe() -> None:
@@ -30,7 +31,7 @@ def test_steps_basic() -> None:
     assert first_info.timeout == 5.0
     assert first_info.retries == 2
     assert first_info.targets == ["second"]
-    assert first_info.kind == "step"
+    assert first_info.kind == NodeKind.STEP
     assert first_info.has_error_handler is False
 
     second_info = steps["second"]
@@ -38,7 +39,7 @@ def test_steps_basic() -> None:
     assert second_info.timeout is None
     assert second_info.retries == 0
     assert second_info.targets == []
-    assert second_info.kind == "step"
+    assert second_info.kind == NodeKind.STEP
 
 
 def test_steps_with_error_handler() -> None:
@@ -69,7 +70,7 @@ def test_steps_map_kind() -> None:
 
     steps = {s.name: s for s in pipe.steps()}
 
-    assert steps["producer"].kind == "map"
+    assert steps["producer"].kind == NodeKind.MAP
     assert "worker" in steps["producer"].targets
 
 
@@ -90,7 +91,7 @@ def test_steps_switch_kind() -> None:
 
     steps = {s.name: s for s in pipe.steps()}
 
-    assert steps["router"].kind == "switch"
+    assert steps["router"].kind == NodeKind.SWITCH
     assert "path_a" in steps["router"].targets
     assert "path_b" in steps["router"].targets
 

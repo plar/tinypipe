@@ -12,7 +12,7 @@ import pytest
 from justpipe.cli.registry import PipelineRegistry
 from justpipe.dashboard.api import DashboardAPI
 from justpipe.storage.sqlite import SQLiteBackend
-from justpipe.types import PipelineTerminalStatus
+from justpipe.types import EventType, PipelineTerminalStatus
 from tests.factories import make_events, make_run
 
 
@@ -106,7 +106,7 @@ class TestListRuns:
         self, api_env: tuple[DashboardAPI, SQLiteBackend]
     ) -> None:
         api, _ = api_env
-        result = api.list_runs("abc123", status="failed")
+        result = api.list_runs("abc123", status=PipelineTerminalStatus.FAILED)
 
         assert result is not None
         assert len(result) == 1
@@ -149,7 +149,7 @@ class TestGetEvents:
 
     def test_filter_by_type(self, api_env: tuple[DashboardAPI, SQLiteBackend]) -> None:
         api, _ = api_env
-        result = api.get_events("run-001", event_type="step_start")
+        result = api.get_events("run-001", event_type=EventType.STEP_START)
 
         assert result is not None
         assert len(result) == 1

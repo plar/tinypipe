@@ -18,8 +18,10 @@ Usage:
 import asyncio
 import os
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from justpipe import Pipe, EventType, TestPipe
+from examples.utils import save_graph
 
 # ---------------------------------------------------------------------------
 # State
@@ -116,6 +118,8 @@ async def main() -> None:
             print(event.payload, end="", flush=True)
 
     print(f"\n\n--- Done ({len(state.tokens)} tokens) ---")
+
+    save_graph(pipe, Path(__file__).parent / "pipeline.mmd")
 
 
 # ---------------------------------------------------------------------------

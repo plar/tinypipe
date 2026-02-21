@@ -152,7 +152,9 @@ class _MermaidRenderer:
 
         start_target_id = f"{prefix}Start"
 
-        self._render_hooks(ast.startup_hooks, prefix, indent, "startup", start_target_id, before=True)
+        self._render_hooks(
+            ast.startup_hooks, prefix, indent, "startup", start_target_id, before=True
+        )
 
         # Start node
         self._add(f'{start_target_id}(["▶ Start"])', indent)
@@ -181,7 +183,9 @@ class _MermaidRenderer:
                 node = ast.nodes[name]
                 self._add(f"{prefix}{node.id} --> {end_source_id}", indent)
 
-        self._render_hooks(ast.shutdown_hooks, prefix, indent, "shutdown", end_source_id, before=False)
+        self._render_hooks(
+            ast.shutdown_hooks, prefix, indent, "shutdown", end_source_id, before=False
+        )
 
         self.lines.append("")
         self._render_start_connections(ast, prefix, indent, start_target_id)

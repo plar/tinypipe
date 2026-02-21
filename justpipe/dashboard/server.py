@@ -46,7 +46,9 @@ def create_app(registry: PipelineRegistry, static_dir: Path) -> FastAPI:
         limit: int = Query(default=20, ge=1, le=1000),
         offset: int = Query(default=0, ge=0),
     ) -> list[dict]:
-        return _or_404(api.list_runs(pipeline_hash, status, limit, offset), "Pipeline not found")
+        return _or_404(
+            api.list_runs(pipeline_hash, status, limit, offset), "Pipeline not found"
+        )
 
     @app.get("/api/runs/{run_id}")
     def get_run(run_id: str) -> dict:

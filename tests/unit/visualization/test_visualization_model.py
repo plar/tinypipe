@@ -4,25 +4,25 @@ from justpipe.visualization import (
     VisualEdge,
     VisualNode,
     ParallelGroup,
-    NodeKind,
+    VisualNodeKind,
 )
 
 
 def test_node_kind_enum() -> None:
-    """Test NodeKind enum values."""
-    assert NodeKind.STEP.value == "step"
-    assert NodeKind.STREAMING.value == "streaming"
-    assert NodeKind.MAP.value == "map"
-    assert NodeKind.SWITCH.value == "switch"
-    assert NodeKind.SUB.value == "sub"
+    """Test VisualNodeKind enum values."""
+    assert VisualNodeKind.STEP.value == "step"
+    assert VisualNodeKind.STREAMING.value == "streaming"
+    assert VisualNodeKind.MAP.value == "map"
+    assert VisualNodeKind.SWITCH.value == "switch"
+    assert VisualNodeKind.SUB.value == "sub"
 
 
 def test_visual_node_defaults() -> None:
     """Test default values for VisualNode."""
-    node = VisualNode(id="n0", name="test", kind=NodeKind.STEP)
+    node = VisualNode(id="n0", name="test", kind=VisualNodeKind.STEP)
     assert node.id == "n0"
     assert node.name == "test"
-    assert node.kind == NodeKind.STEP
+    assert node.kind == VisualNodeKind.STEP
     assert not node.is_entry
     assert not node.is_terminal
     assert not node.is_isolated

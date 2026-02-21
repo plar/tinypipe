@@ -4,7 +4,7 @@ from typing import Any
 from collections.abc import Callable
 
 from justpipe.visualization.ast import (
-    NodeKind,
+    VisualNodeKind,
     ParallelGroup,
     VisualAST,
     VisualEdge,
@@ -67,7 +67,7 @@ __all__ = [
     "VisualNode",
     "VisualEdge",
     "ParallelGroup",
-    "NodeKind",
+    "VisualNodeKind",
     # Mermaid rendering
     "MermaidTheme",
     # Convenience function

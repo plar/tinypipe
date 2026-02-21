@@ -3,15 +3,17 @@
 from typing import Any
 
 from justpipe.visualization import (
-    NodeKind,
+    VisualNodeKind,
     _PipelineASTBuilder,
 )
+from justpipe.visualization.ast import VisualNode, VisualEdge, ParallelGroup
 from justpipe._internal.definition.steps import (
     _BaseStep,
     _StandardStep,
     _MapStep,
     _SwitchStep,
 )
+from justpipe.types import BarrierType
 
 
 def test_ast_from_empty_pipe() -> None:
@@ -37,7 +39,7 @@ def test_ast_from_single_step() -> None:
     assert len(ast.nodes) == 1
     node = ast.nodes["a"]
     assert node.name == "a"
-    assert node.kind == NodeKind.STEP
+    assert node.kind == VisualNodeKind.STEP
     assert node.is_entry
     assert node.is_terminal
     assert not node.is_isolated
@@ -91,8 +93,8 @@ def test_ast_streaming_node() -> None:
     topology = {"regular": ["streaming"]}
 
     ast = _PipelineASTBuilder.build(steps, topology)
-    assert ast.nodes["streaming"].kind == NodeKind.STREAMING
-    assert ast.nodes["regular"].kind == NodeKind.STEP
+    assert ast.nodes["streaming"].kind == VisualNodeKind.STREAMING
+    assert ast.nodes["regular"].kind == VisualNodeKind.STEP
 
 
 def test_ast_parallel_group() -> None:
@@ -137,7 +139,7 @@ def test_ast_map_metadata() -> None:
     topology: dict[str, list[str]] = {}
 
     ast = _PipelineASTBuilder.build(steps, topology)
-    assert ast.nodes["mapper"].kind == NodeKind.MAP
+    assert ast.nodes["mapper"].kind == VisualNodeKind.MAP
     assert ast.nodes["worker"].is_map_target
     assert len(ast.edges) == 1
     assert ast.edges[0].is_map_edge
@@ -167,7 +169,7 @@ def test_ast_switch_metadata() -> None:
     topology: dict[str, list[str]] = {}
 
     ast = _PipelineASTBuilder.build(steps, topology)
-    assert ast.nodes["router"].kind == NodeKind.SWITCH
+    assert ast.nodes["router"].kind == VisualNodeKind.SWITCH
     assert len(ast.edges) == 2
     labels = {e.label for e in ast.edges}
     assert labels == {"yes", "no"}
@@ -354,3 +356,110 @@ def test_ast_ignores_unknown_nested_returns_when_outer_return_is_known() -> None
     }
 
     assert dynamic_targets == {"step_b", "step_c"}
+
+
+# ── to_dict() serialization tests ─────────────────────────────────
+
+
+def test_visual_ast_to_dict_round_trip() -> None:
+    """Test that to_dict() produces a valid JSON-serializable dict."""
+
+    async def step_a(s: Any) -> None:
+        pass
+
+    async def step_b(s: Any) -> None:
+        pass
+
+    steps: dict[str, _BaseStep] = {
+        "a": _StandardStep(name="a", func=step_a, to=["b"]),
+        "b": _StandardStep(name="b", func=step_b),
+    }
+    topology = {"a": ["b"]}
+
+    ast = _PipelineASTBuilder.build(steps, topology)
+    d = ast.to_dict()
+
+    assert isinstance(d, dict)
+    assert "nodes" in d
+    assert "edges" in d
+    assert "parallel_groups" in d
+    assert "startup_hooks" in d
+    assert "shutdown_hooks" in d
+
+    # Node serialization
+    assert "a" in d["nodes"]
+    node_a = d["nodes"]["a"]
+    assert node_a["name"] == "a"
+    assert node_a["kind"] == "step"
+    assert node_a["is_entry"] is True
+    assert node_a["barrier_type"] == "all"
+
+    # Edge serialization
+    assert len(d["edges"]) >= 1
+    edge = d["edges"][0]
+    assert edge["source"] == "a"
+    assert edge["target"] == "b"
+    assert edge["is_map_edge"] is False
+
+
+def test_visual_node_to_dict_with_barrier_any() -> None:
+    """Test VisualNode.to_dict() with barrier_type=ANY."""
+    node = VisualNode(
+        id="n0",
+        name="my_step",
+        kind=VisualNodeKind.STEP,
+        barrier_type=BarrierType.ANY,
+    )
+    d = node.to_dict()
+    assert d["barrier_type"] == "any"
+    assert d["kind"] == "step"
+    assert "sub_graph" not in d
+
+
+def test_visual_edge_to_dict_with_label() -> None:
+    """Test VisualEdge.to_dict() includes label when set."""
+    edge = VisualEdge(source="a", target="b", label="high", is_map_edge=True)
+    d = edge.to_dict()
+    assert d["source"] == "a"
+    assert d["target"] == "b"
+    assert d["label"] == "high"
+    assert d["is_map_edge"] is True
+
+
+def test_visual_edge_to_dict_without_label() -> None:
+    """Test VisualEdge.to_dict() omits label when None."""
+    edge = VisualEdge(source="a", target="b")
+    d = edge.to_dict()
+    assert "label" not in d
+
+
+def test_parallel_group_to_dict() -> None:
+    """Test ParallelGroup.to_dict()."""
+    group = ParallelGroup(id="g0", source_id="a", node_ids=["b", "c"])
+    d = group.to_dict()
+    assert d["id"] == "g0"
+    assert d["source_id"] == "a"
+    assert d["node_ids"] == ["b", "c"]
+
+
+def test_describe_includes_visual_ast() -> None:
+    """Test that Pipe.describe() includes visual_ast key."""
+    from justpipe import Pipe
+
+    pipe: Pipe[Any, Any] = Pipe()
+
+    @pipe.step("first", to="second")
+    async def first(s: Any) -> None:
+        pass
+
+    @pipe.step("second")
+    async def second(s: Any) -> None:
+        pass
+
+    desc = pipe.describe()
+    assert "visual_ast" in desc
+    ast = desc["visual_ast"]
+    assert isinstance(ast, dict)
+    assert "first" in ast["nodes"]
+    assert "second" in ast["nodes"]
+    assert len(ast["edges"]) >= 1

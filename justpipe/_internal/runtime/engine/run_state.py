@@ -4,7 +4,7 @@ import time
 from dataclasses import dataclass
 from enum import Enum, auto
 
-from justpipe.types import PipelineEndData, PipelineTerminalStatus
+from justpipe.types import FailureReason, PipelineEndData, PipelineTerminalStatus
 
 
 class _RunPhase(Enum):
@@ -29,7 +29,7 @@ class _RunSession:
         self,
         status: PipelineTerminalStatus,
         error: str | None = None,
-        reason: str | None = None,
+        reason: FailureReason | None = None,
     ) -> PipelineEndData:
         if self.terminal is not None:
             raise RuntimeError("Run already terminal")

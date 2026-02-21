@@ -93,7 +93,7 @@ class _FailureJournal:
             diagnostic = FailureRecord(
                 kind=FailureKind.INFRA,
                 source=FailureSource.FRAMEWORK,
-                reason=FailureReason.CLASSIFIER_ERROR.value,
+                reason=FailureReason.CLASSIFIER_ERROR,
                 error=(
                     "failure_classification.source_classifier raised an exception: "
                     f"{type(exc).__name__}: {exc}"
@@ -111,7 +111,7 @@ class _FailureJournal:
         diagnostic = FailureRecord(
             kind=FailureKind.INFRA,
             source=FailureSource.FRAMEWORK,
-            reason=FailureReason.CLASSIFIER_ERROR.value,
+            reason=FailureReason.CLASSIFIER_ERROR,
             error=(
                 "failure_classification.source_classifier "
                 f"returned invalid value: {user_source!r}"

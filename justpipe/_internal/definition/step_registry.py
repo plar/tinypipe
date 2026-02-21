@@ -18,6 +18,7 @@ from justpipe._internal.definition.steps import (
     _BaseStep,
     _SubPipelineStep,
 )
+from justpipe._internal.shared.pipeline_hash import compute_pipeline_hash
 from justpipe._internal.definition.type_resolver import _TypeResolver
 from justpipe._internal.definition.registry_validator import _RegistryValidator
 
@@ -400,6 +401,14 @@ class _StepRegistry:
 
             unique_targets = sorted(set(targets))
 
+            sub_hash: str | None = None
+            if isinstance(step, _SubPipelineStep):
+                sub_hash = compute_pipeline_hash(
+                    step.pipeline.registry.pipe_name,
+                    step.pipeline.registry.steps,
+                    step.pipeline.registry.topology,
+                )
+
             yield StepInfo(
                 name=name,
                 timeout=step.timeout,
@@ -408,4 +417,5 @@ class _StepRegistry:
                 has_error_handler=step.on_error is not None,
                 targets=unique_targets,
                 kind=step.get_kind(),
+                sub_pipeline_hash=sub_hash,
             )
