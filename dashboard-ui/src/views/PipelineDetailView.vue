@@ -1,11 +1,14 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, watch } from 'vue'
 import { useRoute } from 'vue-router'
-import type { PipelineSummary, Run, Stats, TopologyNode } from '@/types'
+import type { TopologyNode } from '@/types'
 import { api } from '@/api/client'
 import { processEvents } from '@/lib/event-processor'
 import { formatDuration, shortId, formatTimestamp } from '@/lib/utils'
+import { statusBadgeVariant } from '@/lib/view-helpers'
+import { usePipelinesStore } from '@/stores/pipelines'
 import { useUiStore } from '@/stores/ui'
+import DagErrorBoundary from '@/components/dag/DagErrorBoundary.vue'
 import DagCanvasPixi from '@/components/dag/DagCanvasPixi.vue'
 import DagLegend from '@/components/dag/DagLegend.vue'
 import Sidebar from '@/components/inspector/Sidebar.vue'
@@ -15,21 +18,25 @@ import TabBar from '@/components/ui/TabBar.vue'
 import MetricTile from '@/components/ui/MetricTile.vue'
 import StatusIndicator from '@/components/ui/StatusIndicator.vue'
 import LoadingState from '@/components/ui/LoadingState.vue'
+import ErrorBanner from '@/components/ui/ErrorBanner.vue'
 import Sparkline from '@/components/ui/Sparkline.vue'
 import { ArrowLeft } from 'lucide-vue-next'
 
 const route = useRoute()
+const store = usePipelinesStore()
 const ui = useUiStore()
 const hash = computed(() => route.params.hash as string)
 
-const pipeline = ref<PipelineSummary | null>(null)
-const runs = ref<Run[]>([])
-const stats = ref<Stats | null>(null)
 const loading = ref(true)
 const error = ref('')
 const activeTab = ref('dag')
 const statusFilter = ref('')
 const stepStatuses = ref<Record<string, string>>({})
+
+// Use store for cached data
+const pipeline = computed(() => store.getDetail(hash.value))
+const runs = computed(() => store.getRuns(hash.value))
+const stats = computed(() => store.getStats(hash.value))
 
 // Topology node inspector
 const selectedTopologyNode = computed<TopologyNode | null>(() => {
@@ -67,7 +74,7 @@ const tabs = [
 ]
 
 async function loadRuns() {
-  runs.value = await api.listRuns(hash.value, {
+  await store.fetchRuns(hash.value, {
     status: statusFilter.value || undefined,
     limit: 50,
   })
@@ -83,27 +90,16 @@ const dailyActivityData = computed<Array<[string, number]>>(() => {
   return Object.entries(stats.value.daily_activity).sort(([a], [b]) => a.localeCompare(b))
 })
 
-function statusBadgeVariant(s: string): 'success' | 'destructive' | 'warning' | 'muted' {
-  switch (s) {
-    case 'success': return 'success'
-    case 'failed': return 'destructive'
-    case 'timeout': return 'warning'
-    default: return 'muted'
-  }
-}
-
 onMounted(async () => {
   try {
-    const [p, r, s] = await Promise.all([
-      api.getPipeline(hash.value),
-      api.listRuns(hash.value, { limit: 50 }),
-      api.getStats(hash.value),
+    await Promise.all([
+      store.fetchDetail(hash.value),
+      store.fetchRuns(hash.value, { limit: 50 }),
+      store.fetchStats(hash.value),
     ])
-    pipeline.value = p
-    runs.value = r
-    stats.value = s
 
     // Compute step statuses from latest run's events for DAG coloring
+    const r = store.getRuns(hash.value)
     if (r.length > 0) {
       try {
         const latestEvents = await api.getEvents(r[0]!.run_id)
@@ -123,14 +119,30 @@ onMounted(async () => {
     loading.value = false
   }
 })
+
+// Re-fetch when navigating to a different pipeline
+watch(hash, async (newHash) => {
+  loading.value = true
+  error.value = ''
+  stepStatuses.value = {}
+  try {
+    await Promise.all([
+      store.fetchDetail(newHash),
+      store.fetchRuns(newHash, { limit: 50 }),
+      store.fetchStats(newHash),
+    ])
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    loading.value = false
+  }
+})
 </script>
 
 <template>
   <div>
     <LoadingState v-if="loading" />
-    <div v-else-if="error" class="rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
-      {{ error }}
-    </div>
+    <ErrorBanner v-else-if="error" :message="error" />
     <template v-else-if="pipeline">
       <!-- Header -->
       <div class="mb-6">
@@ -147,20 +159,22 @@ onMounted(async () => {
         <TabBar :tabs="tabs" :active="activeTab" @select="activeTab = $event" />
       </div>
 
-      <!-- DAG Tab -->
-      <div v-if="activeTab === 'dag'">
-        <DagCanvasPixi
-          v-if="pipeline.topology"
-          :topology="pipeline.topology"
-          :visual-ast="pipeline.visual_ast"
-          :step-statuses="stepStatuses"
-          @navigate-sub="$router.push(`/pipeline/${$event}`)"
-        >
-          <template #legend>
-            <DagLegend />
-          </template>
-        </DagCanvasPixi>
-        <div v-else class="rounded-lg border border-border bg-card p-8 text-center text-sm text-muted-foreground">
+      <!-- DAG Tab (v-show to persist WebGL context) -->
+      <div v-show="activeTab === 'dag'">
+        <DagErrorBoundary>
+          <DagCanvasPixi
+            v-if="pipeline.topology"
+            :topology="pipeline.topology"
+            :visual-ast="pipeline.visual_ast"
+            :step-statuses="stepStatuses"
+            @navigate-sub="$router.push(`/pipeline/${$event}`)"
+          >
+            <template #legend>
+              <DagLegend />
+            </template>
+          </DagCanvasPixi>
+        </DagErrorBoundary>
+        <div v-if="!pipeline.topology" class="rounded-lg border border-border bg-card p-8 text-center text-sm text-muted-foreground">
           No topology data available for this pipeline.
         </div>
       </div>
@@ -234,14 +248,14 @@ onMounted(async () => {
 
         <!-- Status breakdown -->
         <div class="mb-6 rounded-lg border border-border bg-card p-4">
-          <h4 class="mb-3 text-sm font-medium text-foreground">Status Breakdown</h4>
+          <h4 class="border-l-2 border-primary/40 pl-3 mb-3 text-sm font-medium text-foreground">Status Breakdown</h4>
           <div class="space-y-2">
             <div v-for="[status, count] in statusEntries" :key="status" class="flex items-center gap-3">
               <span class="w-24 text-sm text-muted-foreground capitalize">{{ status }}</span>
               <div class="flex-1">
                 <div class="h-5 overflow-hidden rounded bg-muted">
                   <div
-                    class="h-full rounded transition-all"
+                    class="h-full rounded status-bar"
                     :class="{
                       'bg-success': status === 'success',
                       'bg-destructive': status === 'failed',
@@ -259,7 +273,7 @@ onMounted(async () => {
 
         <!-- Daily Activity -->
         <div v-if="dailyActivityData.length > 1" class="mb-6 rounded-lg border border-border bg-card p-4">
-          <h4 class="mb-3 text-sm font-medium text-foreground">Daily Activity</h4>
+          <h4 class="border-l-2 border-primary/40 pl-3 mb-3 text-sm font-medium text-foreground">Daily Activity</h4>
           <Sparkline :data="dailyActivityData" :height="48" :bars="true" />
           <div class="mt-2 flex justify-between text-[9px] font-mono text-muted-foreground">
             <span>{{ dailyActivityData[0]?.[0] }}</span>
@@ -269,7 +283,7 @@ onMounted(async () => {
 
         <!-- Recent errors -->
         <div v-if="stats.recent_errors.length" class="rounded-lg border border-border bg-card p-4">
-          <h4 class="mb-3 text-sm font-medium text-foreground">Recent Errors</h4>
+          <h4 class="border-l-2 border-primary/40 pl-3 mb-3 text-sm font-medium text-foreground">Recent Errors</h4>
           <div class="space-y-2">
             <div
               v-for="err in stats.recent_errors"
@@ -342,3 +356,9 @@ onMounted(async () => {
     </template>
   </div>
 </template>
+
+<style scoped>
+.status-bar {
+  transition: width 0.6s ease-out;
+}
+</style>

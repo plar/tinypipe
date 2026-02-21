@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { ref, computed } from 'vue'
 
 const props = defineProps<{
   /** Data points: array of [label, value] pairs (rendered left to right) */
@@ -14,6 +14,11 @@ const props = defineProps<{
 
 const svgHeight = computed(() => props.height ?? 40)
 const strokeColor = computed(() => props.color ?? 'var(--color-info)')
+
+const containerRef = ref<HTMLDivElement | null>(null)
+const hoverIndex = ref<number | null>(null)
+const hoverX = ref(0)
+const hoverY = ref(0)
 
 const maxVal = computed(() => {
   const max = Math.max(...props.data.map(([, v]) => v))
@@ -68,10 +73,51 @@ const barRects = computed(() => {
     value: v,
   }))
 })
+
+// Hover indicator line position (SVG viewBox x-coordinate)
+const hoverLineX = computed(() => {
+  if (hoverIndex.value === null || props.data.length === 0) return 0
+  const n = props.data.length
+  if (props.bars) {
+    const barWidth = 100 / n
+    return hoverIndex.value * barWidth + barWidth / 2
+  }
+  return (hoverIndex.value / Math.max(n - 1, 1)) * 100
+})
+
+function onMouseMove(event: MouseEvent) {
+  const el = containerRef.value
+  if (!el || props.data.length === 0) return
+  const rect = el.getBoundingClientRect()
+  const relX = event.clientX - rect.left
+  const ratio = relX / rect.width
+  const n = props.data.length
+  const idx = Math.max(0, Math.min(n - 1, Math.round(ratio * (n - 1))))
+  hoverIndex.value = idx
+  hoverX.value = event.clientX - rect.left
+  hoverY.value = event.clientY - rect.top
+}
+
+function onMouseLeave() {
+  hoverIndex.value = null
+}
+
+const hoveredItem = computed(() => {
+  if (hoverIndex.value === null) return null
+  const item = props.data[hoverIndex.value]
+  if (!item) return null
+  return { label: item[0], value: item[1] }
+})
 </script>
 
 <template>
-  <div v-if="data.length > 0">
+  <div
+    v-if="data.length > 0"
+    ref="containerRef"
+    class="relative"
+    @mousemove="onMouseMove"
+    @mouseleave="onMouseLeave"
+  >
     <svg
       :viewBox="`0 0 100 ${svgHeight}`"
       preserveAspectRatio="none"
@@ -80,15 +126,16 @@ const barRects = computed(() => {
     >
       <template v-if="bars">
         <rect
-          v-for="bar in barRects"
+          v-for="(bar, i) in barRects"
           :key="bar.label"
           :x="bar.x"
           :y="bar.y"
           :width="bar.width"
           :height="bar.height"
           :fill="strokeColor"
-          fill-opacity="0.6"
+          :fill-opacity="hoverIndex === i ? 0.9 : 0.6"
           rx="0.5"
+          class="transition-[fill-opacity] duration-100"
         />
       </template>
       <template v-else>
@@ -101,6 +148,31 @@ const barRects = computed(() => {
           vector-effect="non-scaling-stroke"
         />
       </template>
+      <!-- Hover indicator line -->
+      <line
+        v-if="hoverIndex !== null"
+        :x1="hoverLineX"
+        :y1="0"
+        :x2="hoverLineX"
+        :y2="svgHeight"
+        stroke="var(--color-foreground)"
+        stroke-opacity="0.3"
+        stroke-width="0.3"
+        vector-effect="non-scaling-stroke"
+      />
     </svg>
+    <!-- Hover tooltip -->
+    <div
+      v-if="hoveredItem"
+      class="pointer-events-none absolute z-10 rounded border border-border bg-card px-2 py-1 text-xs shadow-md"
+      :style="{
+        left: hoverX + 'px',
+        top: '-4px',
+        transform: 'translate(-50%, -100%)',
+      }"
+    >
+      <span class="text-muted-foreground">{{ hoveredItem.label }}:</span>
+      <span class="ml-1 font-medium tabular-nums text-foreground">{{ hoveredItem.value }}</span>
+    </div>
   </div>
 </template>
