@@ -4,6 +4,10 @@ import AppLayout from './components/layout/AppLayout.vue'
 
 <template>
   <AppLayout>
-    <router-view />
+    <router-view v-slot="{ Component }">
+      <transition name="route" mode="out-in">
+        <component :is="Component" />
+      </transition>
+    </router-view>
   </AppLayout>
 </template>

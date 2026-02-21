@@ -47,7 +47,7 @@ async def test_pipeline_emits_cancelled_event_and_terminal_status() -> None:
     assert "user_cancelled" in str(cancelled_events[0].payload)
     assert isinstance(finish.payload, PipelineEndData)
     assert finish.payload.status == PipelineTerminalStatus.CANCELLED
-    assert finish.payload.reason == FailureReason.CANCELLED.value
+    assert finish.payload.reason is FailureReason.CANCELLED
     assert finish.payload.failure_kind == FailureKind.NONE
 
 

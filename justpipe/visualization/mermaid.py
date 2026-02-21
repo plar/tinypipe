@@ -1,8 +1,9 @@
 """Mermaid.js renderer for pipeline visualization."""
 
+from collections import defaultdict
 from dataclasses import dataclass
 
-from justpipe.visualization.ast import NodeKind, VisualAST, VisualNode
+from justpipe.visualization.ast import VisualNodeKind, VisualAST, VisualNode
 from justpipe.types import BarrierType
 
 
@@ -110,13 +111,13 @@ class _MermaidRenderer:
             node_def = f'{node_id}@{{ shape: procs, label: "{label}" }}'
         else:
             match node.kind:
-                case NodeKind.SWITCH:
+                case VisualNodeKind.SWITCH:
                     node_def = f'{node_id}{{"{label}"}}'
-                case NodeKind.MAP:
+                case VisualNodeKind.MAP:
                     node_def = f'{node_id}[["{label}"]]'
-                case NodeKind.SUB:
+                case VisualNodeKind.SUB:
                     node_def = f'{node_id}[/"{label}" /]'
-                case NodeKind.STREAMING:
+                case VisualNodeKind.STREAMING:
                     label = f"{label} ⚡"
                     node_def = f'{node_id}(["{label}"])'
 
@@ -151,7 +152,9 @@ class _MermaidRenderer:
 
         start_target_id = f"{prefix}Start"
 
-        self._render_startup_hooks(ast, prefix, indent, start_target_id)
+        self._render_hooks(
+            ast.startup_hooks, prefix, indent, "startup", start_target_id, before=True
+        )
 
         # Start node
         self._add(f'{start_target_id}(["▶ Start"])', indent)
@@ -180,7 +183,9 @@ class _MermaidRenderer:
                 node = ast.nodes[name]
                 self._add(f"{prefix}{node.id} --> {end_source_id}", indent)
 
-        self._render_shutdown_hooks(ast, prefix, indent, end_source_id)
+        self._render_hooks(
+            ast.shutdown_hooks, prefix, indent, "shutdown", end_source_id, before=False
+        )
 
         self.lines.append("")
         self._render_start_connections(ast, prefix, indent, start_target_id)
@@ -192,23 +197,33 @@ class _MermaidRenderer:
 
         self._render_sub_pipelines(ast, prefix, indent)
 
-    def _render_startup_hooks(
-        self, ast: VisualAST, prefix: str, indent: int, start_target_id: str
+    def _render_hooks(
+        self,
+        hooks: list[str],
+        prefix: str,
+        indent: int,
+        kind: str,
+        connect_id: str | None,
+        *,
+        before: bool,
     ) -> None:
-        if ast.startup_hooks:
-            last_hook_id = None
-            self._add(f"subgraph {prefix}startup[Startup Hooks]", indent)
-            self._add("direction TB", indent + 4)
-            for i, h_name in enumerate(ast.startup_hooks):
-                node_id = f"{prefix}startup_{i}"
-                label = self._format_label(h_name)
-                self._add(f"{node_id}> {label} ]", indent + 4)
-                if last_hook_id:
-                    self._add(f"{last_hook_id} --> {node_id}", indent + 4)
-                last_hook_id = node_id
-            self._add("end", indent)
-
-            self._add(f"{prefix}startup --> {start_target_id}", indent)
+        if not hooks or connect_id is None:
+            return
+        label = f"{kind.title()} Hooks"
+        last_id = None
+        self._add(f"subgraph {prefix}{kind}[{label}]", indent)
+        self._add("direction TB", indent + 4)
+        for i, h_name in enumerate(hooks):
+            node_id = f"{prefix}{kind}_{i}"
+            self._add(f"{node_id}> {self._format_label(h_name)} ]", indent + 4)
+            if last_id:
+                self._add(f"{last_id} --> {node_id}", indent + 4)
+            last_id = node_id
+        self._add("end", indent)
+        if before:
+            self._add(f"{prefix}{kind} --> {connect_id}", indent)
+        else:
+            self._add(f"{connect_id} --> {prefix}{kind}", indent)
 
     def _render_parallel_groups(self, ast: VisualAST, prefix: str, indent: int) -> None:
         for group in ast.parallel_groups:
@@ -233,30 +248,6 @@ class _MermaidRenderer:
             if name not in grouped and name not in isolated:
                 node = ast.nodes[name]
                 self._add(self._render_node(node, prefix), indent)
-
-    def _render_shutdown_hooks(
-        self,
-        ast: VisualAST,
-        prefix: str,
-        indent: int,
-        end_source_id: str | None,
-    ) -> None:
-        if ast.shutdown_hooks and end_source_id:
-            last_hook_id = None
-
-            self._add(f"subgraph {prefix}shutdown[Shutdown Hooks]", indent)
-            self._add("direction TB", indent + 4)
-            for i, h_name in enumerate(ast.shutdown_hooks):
-                node_id = f"{prefix}shutdown_{i}"
-                label = self._format_label(h_name)
-                self._add(f"{node_id}> {label} ]", indent + 4)
-
-                if last_hook_id:
-                    self._add(f"{last_hook_id} --> {node_id}", indent + 4)
-                last_hook_id = node_id
-            self._add("end", indent)
-
-            self._add(f"{end_source_id} --> {prefix}shutdown", indent)
 
     def _render_start_connections(
         self, ast: VisualAST, prefix: str, indent: int, start_target_id: str
@@ -319,41 +310,20 @@ class _MermaidRenderer:
 
     def _apply_classes(self, ast: VisualAST, prefix: str) -> None:
         """Generate class assignments for nodes."""
-        step_ids: list[str] = []
-        streaming_ids: list[str] = []
-        map_ids: list[str] = []
-        switch_ids: list[str] = []
-        sub_ids: list[str] = []
-        isolated_ids: list[str] = []
-
+        kind_to_class = {
+            VisualNodeKind.STREAMING: "streaming",
+            VisualNodeKind.MAP: "map",
+            VisualNodeKind.SWITCH: "switch",
+            VisualNodeKind.SUB: "sub",
+        }
+        buckets: dict[str, list[str]] = defaultdict(list)
         for name, node in ast.nodes.items():
             full_id = f"{prefix}{node.id}"
             if node.is_isolated:
-                isolated_ids.append(full_id)
-            elif node.kind == NodeKind.STREAMING:
-                streaming_ids.append(full_id)
-            elif node.kind == NodeKind.MAP:
-                map_ids.append(full_id)
-            elif node.kind == NodeKind.SWITCH:
-                switch_ids.append(full_id)
-            elif node.kind == NodeKind.SUB:
-                sub_ids.append(full_id)
+                buckets["isolated"].append(full_id)
             else:
-                step_ids.append(full_id)
-
-        if step_ids:
-            self._add(f"class {','.join(sorted(step_ids))} step;")
-        if streaming_ids:
-            self._add(f"class {','.join(sorted(streaming_ids))} streaming;")
-        if map_ids:
-            self._add(f"class {','.join(sorted(map_ids))} map;")
-        if switch_ids:
-            self._add(f"class {','.join(sorted(switch_ids))} switch;")
-        if sub_ids:
-            self._add(f"class {','.join(sorted(sub_ids))} sub;")
-        if isolated_ids:
-            self._add(f"class {','.join(sorted(isolated_ids))} isolated;")
-
-        # Start/End nodes for this level
+                buckets[kind_to_class.get(node.kind, "step")].append(full_id)
+        for cls, ids in sorted(buckets.items()):
+            self._add(f"class {','.join(sorted(ids))} {cls};")
         if ast.nodes:
             self._add(f"class {prefix}Start,{prefix}End startEnd;")

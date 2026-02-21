@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from justpipe.cli.registry import PipelineRegistry
+from justpipe.cli.registry import PipelineInfo, PipelineRegistry
 from justpipe.dashboard.serializers import (
     serialize_comparison,
     serialize_event,
@@ -25,6 +25,16 @@ class DashboardAPI:
     def __init__(self, registry: PipelineRegistry) -> None:
         self._registry = registry
 
+    def _find_pipeline(self, pipeline_hash: str) -> PipelineInfo | None:
+        return next(
+            (
+                info
+                for info in self._registry.list_pipelines()
+                if info.hash == pipeline_hash
+            ),
+            None,
+        )
+
     def list_pipelines(self) -> list[dict[str, Any]]:
         """All pipelines with summary stats."""
         result = []
@@ -36,10 +46,7 @@ class DashboardAPI:
 
     def get_pipeline(self, pipeline_hash: str) -> dict[str, Any] | None:
         """Pipeline detail including topology from pipeline.json."""
-        pipelines_by_hash = {
-            info.hash: info for info in self._registry.list_pipelines()
-        }
-        info = pipelines_by_hash.get(pipeline_hash)
+        info = self._find_pipeline(pipeline_hash)
         if info is None:
             return None
 
@@ -56,26 +63,23 @@ class DashboardAPI:
         runs = backend.list_runs(limit=MAX_QUERY_LIMIT)
         summary = serialize_pipeline(info, runs)
         summary["topology"] = topology
+        summary["visual_ast"] = topology.get("visual_ast") if topology else None
         return summary
 
     def list_runs(
         self,
         pipeline_hash: str,
-        status: str | None = None,
+        status: PipelineTerminalStatus | None = None,
         limit: int = 20,
         offset: int = 0,
     ) -> list[dict[str, Any]] | None:
         """Paginated runs for one pipeline."""
-        for info in self._registry.list_pipelines():
-            if info.hash == pipeline_hash:
-                backend = self._registry.get_backend(info.hash)
-                try:
-                    enum_status = PipelineTerminalStatus(status) if status else None
-                except ValueError:
-                    return []
-                runs = backend.list_runs(status=enum_status, limit=limit, offset=offset)
-                return [serialize_run(r, info.name, info.hash) for r in runs]
-        return None
+        info = self._find_pipeline(pipeline_hash)
+        if info is None:
+            return None
+        backend = self._registry.get_backend(info.hash)
+        runs = backend.list_runs(status=status, limit=limit, offset=offset)
+        return [serialize_run(r, info.name, info.hash) for r in runs]
 
     def get_run(self, run_id: str) -> dict[str, Any] | None:
         """Single run detail resolved across all pipelines."""
@@ -88,18 +92,15 @@ class DashboardAPI:
         )
 
     def get_events(
-        self, run_id: str, event_type: str | None = None
+        self, run_id: str, event_type: EventType | None = None
     ) -> list[dict[str, Any]] | None:
         """All events for a run, optionally filtered by type."""
         result = self._registry.resolve_run(run_id)
         if result is None:
             return None
-        _annotated, backend = result
-        try:
-            enum_type = EventType(event_type) if event_type else None
-        except ValueError:
-            return []
-        events = backend.get_events(run_id, event_type=enum_type)
+        annotated, backend = result
+        full_id = annotated.run.run_id
+        events = backend.get_events(full_id, event_type=event_type)
         return [serialize_event(e) for e in events]
 
     def get_timeline(self, run_id: str) -> list[dict[str, Any]] | None:
@@ -107,8 +108,9 @@ class DashboardAPI:
         result = self._registry.resolve_run(run_id)
         if result is None:
             return None
-        _annotated, backend = result
-        events = backend.get_events(run_id)
+        annotated, backend = result
+        full_id = annotated.run.run_id
+        events = backend.get_events(full_id)
         return serialize_timeline(events)
 
     def compare(self, run1_id: str, run2_id: str) -> dict[str, Any] | None:
@@ -136,9 +138,9 @@ class DashboardAPI:
 
     def get_stats(self, pipeline_hash: str, days: int = 7) -> dict[str, Any] | None:
         """Aggregated stats for a pipeline."""
-        for info in self._registry.list_pipelines():
-            if info.hash == pipeline_hash:
-                backend = self._registry.get_backend(info.hash)
-                runs = backend.list_runs(limit=MAX_QUERY_LIMIT)
-                return serialize_stats(runs, days=days)
-        return None
+        info = self._find_pipeline(pipeline_hash)
+        if info is None:
+            return None
+        backend = self._registry.get_backend(info.hash)
+        runs = backend.list_runs(limit=MAX_QUERY_LIMIT)
+        return serialize_stats(runs, days=days)

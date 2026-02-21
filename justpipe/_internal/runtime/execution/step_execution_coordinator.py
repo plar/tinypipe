@@ -8,7 +8,7 @@ from justpipe._internal.runtime.execution.step_error_store import _StepErrorStor
 from justpipe._internal.runtime.meta import _ScopedMeta, _current_step_meta_var
 from justpipe._internal.runtime.orchestration.control import InvocationContext
 from justpipe._internal.runtime.orchestration.protocols import CoordinatorOrchestrator
-from justpipe.types import EventType, NodeKind
+from justpipe.types import EventType, NodeKind, StepStatus
 
 StateT = TypeVar("StateT")
 ContextT = TypeVar("ContextT")
@@ -124,7 +124,7 @@ class _StepExecutionCoordinator(Generic[StateT, ContextT]):
             elapsed = time.monotonic() - t0
             _current_step_meta_var.reset(token)
 
-        status = "error" if user_error else "success"
+        status = StepStatus.ERROR if user_error else StepStatus.SUCCESS
         step_meta_obj._set_framework(
             duration_s=round(elapsed, 6),
             attempt=invocation.attempt,

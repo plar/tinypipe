@@ -5,6 +5,7 @@ from collections.abc import AsyncGenerator
 from justpipe.types import (
     Event,
     EventType,
+    NodeKind,
     Raise,
     Retry,
     Skip,
@@ -106,7 +107,7 @@ class _ResultHandler:
         # If a standard step explicitly returns a next step (dynamic routing),
         # we skip the static topology transitions for this step.
         step = self._steps.get(item.owner)
-        if step and step.get_kind() == "step":
+        if step and step.get_kind() == NodeKind.STEP:
             if isinstance(res, _Next) and res.target is not None:
                 self._orchestrator.tracker.mark_skipped(item.owner)
 

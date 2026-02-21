@@ -123,8 +123,11 @@ def serialize_stats(runs: list[RunRecord], days: int = 7) -> dict[str, Any]:
             "error_message": r.error_message,
             "error_step": r.error_step,
         }
-        for r in sorted(recent, key=lambda r: r.start_time, reverse=True)
-        if r.status == PipelineTerminalStatus.FAILED
+        for r in sorted(
+            (r for r in recent if r.status == PipelineTerminalStatus.FAILED),
+            key=lambda r: r.start_time,
+            reverse=True,
+        )
     ][:5]
 
     return {
@@ -153,7 +156,7 @@ def serialize_timeline(events: list[StoredEvent]) -> list[dict[str, Any]]:
             "start_time": s.start.isoformat(),
             "end_time": s.end.isoformat(),
             "duration_seconds": round(s.duration, 4),
-            "status": s.status,
+            "status": s.status.value,
         }
         for s in spans
     ]

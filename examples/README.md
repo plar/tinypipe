@@ -47,6 +47,7 @@ Patterns specifically designed for building LLM-powered applications.
 | Example | Focus |
 |:---|:---|
 | **[07 Streaming](./07_streaming)** | Real-time token streaming for chat interfaces. |
+| **[15 Real LLM Streaming](./15_real_llm_streaming)** | Production LLM integration with mock fallback and TestPipe. |
 | **[05 Suspension](./05_suspension_resume)** | Human-in-the-loop: pausing execution to wait for user input. |
 
 ## 🛠️ Production Reliability
@@ -59,6 +60,7 @@ Tools for monitoring, debugging, and hardening your pipelines.
 | **[08 Reliability](./08_reliability_retry)** | Automatic retries and exponential backoff using `tenacity`. |
 | **[09 Middleware](./09_middleware)** | Cross-cutting concerns like global timing or custom logging. |
 | **[10 Lifecycle Hooks](./10_lifecycle_hooks)** | Resource management (DB connections, API clients) via `on_startup`/`on_shutdown`. |
+| **[16 Dashboard Showcase](./16_dashboard_showcase)** | Full dashboard demo: DAG, timeline, metrics, replay, and run comparison. |
 
 ---
 

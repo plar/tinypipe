@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from justpipe.types import EventType
+from justpipe.types import EventType, StepStatus
 
 
 @dataclass(frozen=True, slots=True)
@@ -16,7 +16,7 @@ class StepSpan:
     start: Any  # float or datetime depending on caller
     end: Any
     duration: float  # always seconds
-    status: str  # "success" or "error"
+    status: StepStatus
 
 
 def pair_step_events(
@@ -46,7 +46,11 @@ def pair_step_events(
             if not starts[step_name]:
                 del starts[step_name]
             duration = _compute_duration(start_ts, timestamp)
-            status = "success" if event_type == EventType.STEP_END else "error"
+            status = (
+                StepStatus.SUCCESS
+                if event_type == EventType.STEP_END
+                else StepStatus.ERROR
+            )
             spans.append(StepSpan(step_name, start_ts, timestamp, duration, status))
 
     return spans

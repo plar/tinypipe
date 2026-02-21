@@ -24,7 +24,7 @@ def compute_pipeline_hash(
     - Renaming a step changes the hash (step_info changes)
     """
     step_info = sorted(
-        [step_name, step.get_kind()] for step_name, step in steps.items()
+        [step_name, step.get_kind().value] for step_name, step in steps.items()
     )
     edges = sorted([src, dst] for src, dsts in topology.items() for dst in dsts)
     content = json.dumps(

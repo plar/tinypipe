@@ -20,6 +20,7 @@ from justpipe.types import (
     StepInfo,
 )
 from justpipe.visualization import GraphRenderer, MermaidRenderer
+from justpipe.visualization.builder import _PipelineASTBuilder
 
 from justpipe._internal.runtime.engine.composition import RunnerConfig, build_runner
 from justpipe._internal.shared.pipeline_hash import compute_pipeline_hash
@@ -301,7 +302,7 @@ class Pipe(Generic[StateT, ContextT]):
         nodes: dict[str, dict[str, Any]] = {}
         for info in self.registry.step_registry.get_steps_info():
             node: dict[str, Any] = {
-                "kind": info.kind,
+                "kind": info.kind.value,
                 "targets": info.targets,
             }
             if info.timeout is not None:
@@ -312,6 +313,8 @@ class Pipe(Generic[StateT, ContextT]):
                 node["barrier_timeout"] = info.barrier_timeout
             if info.has_error_handler:
                 node["has_error_handler"] = True
+            if info.sub_pipeline_hash:
+                node["sub_pipeline_hash"] = info.sub_pipeline_hash
             nodes[info.name] = node
 
         roots = [
@@ -328,6 +331,13 @@ class Pipe(Generic[StateT, ContextT]):
         if self.registry.error_hook:
             hooks["on_error"] = self.registry.error_hook.func.__name__
 
+        visual = _PipelineASTBuilder.build(
+            self.registry.steps,
+            dict(self.registry.topology),
+            startup_hooks=[h.func for h in self.registry.startup_hooks],
+            shutdown_hooks=[h.func for h in self.registry.shutdown_hooks],
+        )
+
         return {
             "name": self.name,
             "pipeline_hash": compute_pipeline_hash(
@@ -338,6 +348,7 @@ class Pipe(Generic[StateT, ContextT]):
             "roots": roots,
             "metadata": dict(self._metadata),
             "hooks": hooks,
+            "visual_ast": visual.to_dict(),
         }
 
     def steps(self) -> Iterator[StepInfo]:

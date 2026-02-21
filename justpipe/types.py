@@ -238,6 +238,13 @@ class FailureReason(str, Enum):
     NO_STEPS = "no_steps"
 
 
+class StepStatus(str, Enum):
+    """Outcome of a single step execution."""
+
+    SUCCESS = "success"
+    ERROR = "error"
+
+
 @dataclass(frozen=True)
 class FailureClassificationContext:
     """Context passed to user-defined failure source classifiers."""
@@ -331,7 +338,7 @@ class FailureRecord:
 
     kind: FailureKind
     source: FailureSource
-    reason: str
+    reason: FailureReason
     error: str | None = None
     step: str | None = None
 
@@ -343,7 +350,7 @@ class PipelineEndData:
     status: PipelineTerminalStatus
     duration_s: float
     error: str | None = None
-    reason: str | None = None
+    reason: FailureReason | None = None
     failure_kind: FailureKind = FailureKind.NONE
     failure_source: FailureSource = FailureSource.NONE
     failed_step: str | None = None
@@ -417,7 +424,8 @@ class StepInfo:
     barrier_timeout: float | None
     has_error_handler: bool
     targets: list[str]
-    kind: str  # "step", "map", or "switch"
+    kind: NodeKind
+    sub_pipeline_hash: str | None = None
 
 
 @dataclass

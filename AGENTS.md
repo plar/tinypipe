@@ -26,14 +26,15 @@ This document is for LLM agents (like Gemini, Claude, or Cursor) working on or w
     -   Implements `add_middleware()`, `add_event_hook()`, and `apply_middleware(steps)`.
 
 3.  **`_PipelineRunner` (Internal)**: Created for every `run()` call. Implements the `TaskOrchestrator` protocol.
-    -   Coordinates specialized components: `_EventManager`, `_LifecycleManager`, `_BarrierManager`, `_Scheduler`, and `_ResultHandler`.
+    -   Delegates to specialized components via granular protocol ports defined in `orchestration/protocols.py`.
     -   Manages an `asyncio.TaskGroup` for concurrency and an `asyncio.Queue` for event streaming; compiled `ExecutionPlan` drives topology/DI.
     -   Tracks logical/physical tasks for barriers and emits built-in runtime metrics (queue depth, task counts, step latency, barrier waits/timeouts, map fan‑out, event/token/suspend counts) into the FINISH payload (`PipelineEndData.metrics`).
 
-4.  **`TaskOrchestrator` (Protocol)**: Defines the boundary between the Runner and its managers.
-    -   Provides `schedule()`, `spawn()`, and `submit()` methods.
-    -   Exposes read-only `state` and `context`.
-    -   Managers (`_Scheduler`, `_ResultHandler`, etc.) MUST depend on this Protocol, NOT the concrete Runner.
+4.  **Orchestration Protocols** (`orchestration/protocols.py`): Granular protocol hierarchy defining boundaries between Runner and managers.
+    -   Fine-grained ports: `SchedulePort`, `SpawnPort`, `QueueSubmitPort`, `EventEmitPort`, `StepCompletionPort`, `StepFailurePort`, `StepExecutionPort`, `StopPort`.
+    -   Composite protocols: `CoordinatorOrchestrator`, `InvokerOrchestrator`, `FailureHandlingOrchestrator`, `BarrierOrchestrator`, `SchedulerOrchestrator`, `ResultOrchestrator`.
+    -   `TaskOrchestrator` is the top-level composite that unifies all ports.
+    -   Managers MUST depend on the narrowest Protocol they need, NOT the concrete Runner.
 
 5.  **`_DependencyGraph` (Internal)**: Encapsulates the pipeline topology and dependency tracking.
     -   Implements **Barrier Logic** (`ANY`, `ALL`) via specialized private handlers: `_handle_any_barrier` and `_handle_all_barrier`.
@@ -51,7 +52,20 @@ This document is for LLM agents (like Gemini, Claude, or Cursor) working on or w
     -   **Special keys**: `error` (in `on_error` handlers), `step_name`.
     -   **Payload mapping**: In `Map` operations, the item is injected into the first "unknown" parameter.
 
-8.  **Event Stream**: Everything is an `Event`.
+8.  **`_FailureHandler` (Internal)** (`failure/failure_handler.py`): Determines if an error should be retried, swallowed, or propagated.
+
+9.  **Telemetry** (`telemetry/`): Runtime observability internals.
+    -   `execution_log.py`: Structured execution logging.
+    -   `failure_journal.py`: Failure record collection.
+    -   `runtime_metrics.py`: Built-in metric aggregation for the FINISH payload.
+
+10. **Visualization** (`justpipe/visualization/`): Pipeline graph rendering.
+    -   `ast.py`: Pipeline AST representation.
+    -   `builder.py`: Builds visualization models from pipeline definitions.
+    -   `mermaid.py`: Mermaid diagram generation.
+    -   `renderer.py`: Generic rendering infrastructure.
+
+11. **Event Stream**: Everything is an `Event`.
     -   Lifecycle: `START`, `FINISH`, `SUSPEND`, `TIMEOUT`, `CANCELLED` (FINISH carries `PipelineEndData` with `status`, `duration_s`, `reason`, optional error, and `RuntimeMetrics`).
     -   Step: `STEP_START`, `STEP_END`, `STEP_ERROR`, `TOKEN`.
     -   Parallel: `BARRIER_WAIT`, `BARRIER_RELEASE`, `MAP_START`, `MAP_WORKER`, `MAP_COMPLETE`.
@@ -62,7 +76,7 @@ This document is for LLM agents (like Gemini, Claude, or Cursor) working on or w
 
 13 core exports from `justpipe`: `Pipe`, `Event`, `EventType`, `Meta`, `Stop`, `Suspend`, `Retry`, `Skip`, `Raise`, `DefinitionError`, `simple_logging_middleware`, `TestPipe`, `TestResult`
 
-Failure types from `justpipe.failures`: `FailureRecord`, `FailureKind`, `FailureSource`, `FailureReason`, `PipelineTerminalStatus`, `PipelineCancelled`, `PipelineValidationWarning`
+Failure types from `justpipe.failures`: `FailureRecord`, `FailureKind`, `FailureSource`, `FailureReason`, `FailureClassificationConfig`, `FailureClassificationContext`, `FailureSourceClassifier`
 
 ---
 
@@ -82,6 +96,8 @@ Always run these commands from the project root using `uv`.
 | **Coverage** | `uv run pytest tests --cov=justpipe --cov-report=term-missing` |
 | **Benchmarks** | `uv run pytest benchmarks/ -q` |
 | **Mutation (Local)** | `uv run mutmut run` |
+| **Dashboard Dev** | `cd dashboard-ui && npm install && npm run dev` |
+| **Dashboard Build** | `cd dashboard-ui && npm run build` |
 
 ### Testing Strategy
 - **Unit Tests (`tests/unit`)**: Test individual components (`test_visualization_builder.py`, `test_storage.py`).
@@ -96,7 +112,7 @@ Always run these commands from the project root using `uv`.
 - **Determinism Rule**: Prefer `asyncio.Event`/explicit coordination over sleep-driven timing in async tests.
 - **Observability Test Rule**: Prefer structured-record assertions (sink outputs) over brittle raw string matching.
 - **`asyncio_mode = "auto"`** in pytest config — do NOT add `@pytest.mark.asyncio` to tests.
-- **563 tests** is the current baseline — all must pass before committing.
+- **583 tests** is the current baseline — all must pass before committing.
 - **`examples/`** is excluded from both ruff and mypy.
 
 ### Local Mutation Testing Notes
@@ -157,7 +173,7 @@ Steps control the graph by returning specific primitives (import from `justpipe`
 ## 🚦 Common Pitfalls
 - **Zero-dep Core**: `justpipe` has no runtime dependencies. `tenacity`, `click`, `rich`, `fastapi` are optional extras.
 - **Persistence Off by Default**: `persist=False` — no surprise disk writes unless explicitly enabled.
-- **Dashboard Frontend**: `dashboard-ui/` is a Vue 3 + Vite + Tailwind v4 app; built assets go to `justpipe/dashboard/static/` via custom hatch build hook.
+- **Dashboard Frontend**: `dashboard-ui/` is a Vue 3 + Vite + Tailwind v4 + PixiJS + ELK + Pinia app; built assets go to `justpipe/dashboard/static/` via custom hatch build hook.
 - **Type Erasure**: `justpipe` requires `state_type` and `context_type` in `Pipe()` constructor for runtime signature analysis.
 - **Backpressure**: The event queue has a default size (`1000`). If many tokens are yielded without being consumed, the pipeline will block.
 - **Mutable State**: State is shared across parallel steps. Use thread-safe patterns or `context` for read-only data.

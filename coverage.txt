@@ -6,7 +6,7 @@ configfile: pyproject.toml
 testpaths: tests
 plugins: benchmark-5.2.3, cov-7.0.0, hypothesis-6.151.4, asyncio-1.3.0, anyio-4.12.1, repeat-0.9.4
 asyncio: mode=Mode.AUTO, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
-collected 563 items
+collected 583 items
 
 tests/functional/concurrency/test_backpressure.py ...                    [  0%]
 tests/functional/concurrency/test_concurrency.py .........               [  2%]
@@ -16,55 +16,56 @@ tests/functional/error_handling/test_cancellation.py .....               [  4%]
 tests/functional/error_handling/test_error_handling.py .............     [  6%]
 tests/functional/error_handling/test_timeout.py .....                    [  7%]
 tests/functional/test_barrier_types.py ........                          [  8%]
-tests/functional/test_cli_commands.py .............                      [ 11%]
-tests/functional/test_client_close_status.py .                           [ 11%]
-tests/functional/test_event_ordering.py ...........                      [ 13%]
-tests/functional/test_examples_execution.py ......                       [ 14%]
-tests/functional/test_injection.py ........                              [ 15%]
-tests/functional/test_lifecycle.py .........                             [ 17%]
-tests/functional/test_middleware.py ........                             [ 18%]
-tests/functional/test_pipe_immutability.py ....                          [ 19%]
-tests/functional/test_pipeline_meta.py .........                         [ 21%]
-tests/functional/test_pipeline_persistence.py .........                  [ 22%]
-tests/functional/test_return_value_warnings.py .......                   [ 23%]
+tests/functional/test_cli_commands.py .............                      [ 10%]
+tests/functional/test_client_close_status.py .                           [ 10%]
+tests/functional/test_event_ordering.py ...........                      [ 12%]
+tests/functional/test_examples_execution.py ................             [ 15%]
+tests/functional/test_injection.py ........                              [ 16%]
+tests/functional/test_lifecycle.py .........                             [ 18%]
+tests/functional/test_middleware.py ........                             [ 19%]
+tests/functional/test_pipe_immutability.py ....                          [ 20%]
+tests/functional/test_pipeline_meta.py .........                         [ 22%]
+tests/functional/test_pipeline_persistence.py .........                  [ 23%]
+tests/functional/test_return_value_warnings.py .......                   [ 24%]
 tests/functional/test_routing.py ............                            [ 26%]
-tests/functional/test_runtime_contracts.py ........                      [ 27%]
+tests/functional/test_runtime_contracts.py ........                      [ 28%]
 tests/functional/test_runtime_metrics_functional.py ...                  [ 28%]
-tests/functional/test_start_scope_validation.py ..                       [ 28%]
-tests/functional/test_testpipe_harness.py .......                        [ 29%]
-tests/fuzzing/test_fuzz_advanced.py ......                               [ 30%]
-tests/fuzzing/test_fuzz_pipeline.py ..........                           [ 32%]
-tests/integration/storage/test_sqlite_storage_integration.py ..........  [ 34%]
-tests/unit/definition/test_injection_validation.py .....                 [ 35%]
-tests/unit/definition/test_registration_definition.py ......             [ 36%]
-tests/unit/definition/test_registry_validator.py ......                  [ 37%]
-tests/unit/definition/test_signature_analysis.py ...........             [ 39%]
-tests/unit/definition/test_types_resolution.py ...                       [ 39%]
-tests/unit/observability/test_compare.py .                               [ 39%]
-tests/unit/observability/test_observability_barrier.py ....              [ 40%]
-tests/unit/observability/test_observability_logger.py ..............     [ 43%]
-tests/unit/observability/test_observability_state.py .......             [ 44%]
-tests/unit/observability/test_timeline.py .....                          [ 45%]
-tests/unit/observability/test_validate_observer.py ........              [ 46%]
-tests/unit/runtime/test_barriers.py ...                                  [ 47%]
-tests/unit/runtime/test_event_publisher.py ......                        [ 48%]
+tests/functional/test_start_scope_validation.py ..                       [ 29%]
+tests/functional/test_switch_continuation.py ....                        [ 29%]
+tests/functional/test_testpipe_harness.py .......                        [ 31%]
+tests/fuzzing/test_fuzz_advanced.py ......                               [ 32%]
+tests/fuzzing/test_fuzz_pipeline.py ..........                           [ 33%]
+tests/integration/storage/test_sqlite_storage_integration.py ..........  [ 35%]
+tests/unit/definition/test_injection_validation.py .....                 [ 36%]
+tests/unit/definition/test_registration_definition.py ......             [ 37%]
+tests/unit/definition/test_registry_validator.py ......                  [ 38%]
+tests/unit/definition/test_signature_analysis.py ...........             [ 40%]
+tests/unit/definition/test_types_resolution.py ...                       [ 40%]
+tests/unit/observability/test_compare.py .                               [ 40%]
+tests/unit/observability/test_observability_barrier.py ....              [ 41%]
+tests/unit/observability/test_observability_logger.py ..............     [ 44%]
+tests/unit/observability/test_observability_state.py .......             [ 45%]
+tests/unit/observability/test_timeline.py .....                          [ 46%]
+tests/unit/observability/test_validate_observer.py ........              [ 47%]
+tests/unit/runtime/test_barriers.py ...                                  [ 48%]
+tests/unit/runtime/test_event_publisher.py ......                        [ 49%]
 tests/unit/runtime/test_failure_handler.py .....                         [ 49%]
 tests/unit/runtime/test_invoker_guards.py .....                          [ 50%]
-tests/unit/runtime/test_lifecycle_mgr.py .....                           [ 50%]
+tests/unit/runtime/test_lifecycle_mgr.py .....                           [ 51%]
 tests/unit/runtime/test_result_handler_raise.py ..                       [ 51%]
-tests/unit/runtime/test_runner_composition.py .                          [ 51%]
-tests/unit/runtime/test_runner_error_paths.py ......                     [ 52%]
+tests/unit/runtime/test_runner_composition.py .                          [ 52%]
+tests/unit/runtime/test_runner_error_paths.py ......                     [ 53%]
 tests/unit/runtime/test_runtime_kernel.py ...                            [ 53%]
 tests/unit/runtime/test_runtime_metrics.py .                             [ 53%]
-tests/unit/runtime/test_state_machine_invariants.py ...                  [ 53%]
+tests/unit/runtime/test_state_machine_invariants.py ...                  [ 54%]
 tests/unit/runtime/test_step_execution.py .......                        [ 55%]
-tests/unit/shared/test_cancellation_token.py .....                       [ 55%]
+tests/unit/shared/test_cancellation_token.py .....                       [ 56%]
 tests/unit/shared/test_events.py ........                                [ 57%]
 tests/unit/shared/test_structures.py .....                               [ 58%]
-tests/unit/shared/test_tracker.py ........                               [ 59%]
-tests/unit/storage/test_storage.py ........................              [ 63%]
+tests/unit/shared/test_tracker.py ........                               [ 60%]
+tests/unit/storage/test_storage.py ........................              [ 64%]
 tests/unit/test_cli.py ....                                              [ 64%]
-tests/unit/test_cli_export.py .                                          [ 64%]
+tests/unit/test_cli_export.py .                                          [ 65%]
 tests/unit/test_cli_formatting.py .............                          [ 67%]
 tests/unit/test_cli_main_dispatch.py ...                                 [ 67%]
 tests/unit/test_cli_registry.py ..............                           [ 70%]
@@ -73,17 +74,18 @@ tests/unit/test_dashboard_path_traversal.py ..                           [ 73%]
 tests/unit/test_dashboard_serializers.py ................                [ 76%]
 tests/unit/test_describe.py ......                                       [ 77%]
 tests/unit/test_examples_utils.py ....                                   [ 78%]
-tests/unit/test_execution_log.py ....                                    [ 79%]
-tests/unit/test_introspection.py ............                            [ 81%]
+tests/unit/test_execution_log.py ....                                    [ 78%]
+tests/unit/test_introspection.py ............                            [ 80%]
 tests/unit/test_meta.py ...............................                  [ 86%]
-tests/unit/test_middleware_unit.py ...                                   [ 87%]
+tests/unit/test_middleware_unit.py ...                                   [ 86%]
 tests/unit/test_persistence.py ....................                      [ 90%]
-tests/unit/test_pipe_configuration.py ....                               [ 91%]
-tests/unit/test_pipeline_hash.py ........                                [ 93%]
+tests/unit/test_pipe_configuration.py ....                               [ 90%]
+tests/unit/test_pipeline_hash.py ........                                [ 92%]
 tests/unit/test_plan.py .....                                            [ 93%]
-tests/unit/test_terminal_status.py .                                     [ 94%]
-tests/unit/test_testpipe_state_tracking.py ..                            [ 94%]
-tests/unit/visualization/test_visualization_builder.py .............     [ 96%]
+tests/unit/test_terminal_status.py .                                     [ 93%]
+tests/unit/test_testpipe_state_tracking.py ..                            [ 93%]
+tests/unit/visualization/test_visualization_builder.py ................. [ 96%]
+..                                                                       [ 96%]
 tests/unit/visualization/test_visualization_model.py ......              [ 97%]
 tests/unit/visualization/test_visualization_renderer.py ............     [100%]
 
@@ -98,11 +100,11 @@ justpipe/_internal/definition/__init__.py                                0      
 justpipe/_internal/definition/middleware_coordinator.py                 33      2    94%   25, 50
 justpipe/_internal/definition/pipeline_registry.py                      75      0   100%
 justpipe/_internal/definition/registry_validator.py                     44      4    91%   20-21, 27, 89
-justpipe/_internal/definition/step_registry.py                         137      4    97%   231, 282, 287, 353
-justpipe/_internal/definition/steps.py                                 125      7    94%   68, 72, 146-147, 190, 210, 213
-justpipe/_internal/definition/type_resolver.py                          62      3    95%   44-46, 55
+justpipe/_internal/definition/step_registry.py                         141      5    96%   232, 283, 288, 354, 406
+justpipe/_internal/definition/steps.py                                 125      7    94%   69, 73, 147-148, 191, 211, 214
+justpipe/_internal/definition/type_resolver.py                          62      1    98%   55
 justpipe/_internal/graph/__init__.py                                     0      0   100%
-justpipe/_internal/graph/dependency_graph.py                            88      4    95%   64, 125-126, 152
+justpipe/_internal/graph/dependency_graph.py                           102      4    96%   78, 139-140, 174
 justpipe/_internal/graph/execution_plan.py                              21      0   100%
 justpipe/_internal/graph/graph_validator.py                            156     16    90%   44, 100, 104, 122, 127-129, 177, 194, 261, 282-285, 301-302
 justpipe/_internal/runtime/__init__.py                                   0      0   100%
@@ -112,11 +114,11 @@ justpipe/_internal/runtime/engine/pipeline_runner.py                   226      
 justpipe/_internal/runtime/engine/run_context.py                        31      0   100%
 justpipe/_internal/runtime/engine/run_state.py                          40      1    98%   72
 justpipe/_internal/runtime/execution/__init__.py                         0      0   100%
-justpipe/_internal/runtime/execution/result_handler.py                  51      3    94%   72-87
+justpipe/_internal/runtime/execution/result_handler.py                  51      3    94%   73-88
 justpipe/_internal/runtime/execution/scheduler.py                       90      2    98%   83-84
 justpipe/_internal/runtime/execution/step_error_store.py                14      1    93%   16
 justpipe/_internal/runtime/execution/step_execution_coordinator.py      48      0   100%
-justpipe/_internal/runtime/execution/step_invoker.py                    77      6    92%   55, 114, 125-128
+justpipe/_internal/runtime/execution/step_invoker.py                    76      6    92%   53, 112, 123-126
 justpipe/_internal/runtime/failure/__init__.py                           0      0   100%
 justpipe/_internal/runtime/failure/failure_handler.py                   45      0   100%
 justpipe/_internal/runtime/meta.py                                     116      2    98%   169-171
@@ -153,9 +155,9 @@ justpipe/cli/formatting.py                                              37      
 justpipe/cli/main.py                                                    78      5    94%   7-8, 146-148, 157
 justpipe/cli/registry.py                                                72      4    94%   46, 50, 60-61
 justpipe/dashboard/__init__.py                                           0      0   100%
-justpipe/dashboard/api.py                                               88      6    93%   52-53, 74-75, 100-101
+justpipe/dashboard/api.py                                               84      2    98%   59-60
 justpipe/dashboard/serializers.py                                       49      0   100%
-justpipe/dashboard/server.py                                            69     69     0%   6-117
+justpipe/dashboard/server.py                                            55     55     0%   6-109
 justpipe/failures.py                                                     2      2     0%   12-22
 justpipe/middleware.py                                                  55      8    85%   12-24
 justpipe/observability/__init__.py                                      37      4    89%   68, 81, 94, 107
@@ -166,18 +168,18 @@ justpipe/observability/compare.py                                       83      
 justpipe/observability/logger.py                                       111     15    86%   98, 117, 148-149, 151-152, 157-158, 167-168, 178-179, 186, 193, 210
 justpipe/observability/state.py                                        151     23    85%   53-55, 69-71, 80-81, 106, 112-113, 142-145, 163, 174, 206, 231, 236-241, 252, 278, 290-291
 justpipe/observability/timeline.py                                     163     65    60%   88-96, 125, 131-136, 142-144, 150-152, 158, 163, 167, 199, 225-226, 262, 279-324, 359-388
-justpipe/pipe.py                                                       131      7    95%   45, 126-128, 139, 143, 312, 314
+justpipe/pipe.py                                                       135      8    94%   46, 127-129, 140, 144, 313, 315, 317
 justpipe/storage/__init__.py                                             4      0   100%
 justpipe/storage/interface.py                                           32      0   100%
 justpipe/storage/memory.py                                              50      0   100%
-justpipe/storage/sqlite.py                                             102     13    87%   90, 139-162
+justpipe/storage/sqlite.py                                             115     11    90%   80-82, 86, 130, 173-185
 justpipe/testing.py                                                    109     27    75%   22, 40-44, 82-90, 140-153, 197-199
-justpipe/types.py                                                      227      1    99%   290
+justpipe/types.py                                                      231      1    99%   297
 justpipe/visualization/__init__.py                                      20      2    90%   56-57
-justpipe/visualization/ast.py                                           40      0   100%
-justpipe/visualization/builder.py                                       94      7    93%   62, 95, 105-107, 200-202
-justpipe/visualization/mermaid.py                                      215     54    75%   105, 134, 199-211, 215-221, 245-259, 280, 286-295, 300-318, 332, 340, 353, 355
+justpipe/visualization/ast.py                                           54      1    98%   48
+justpipe/visualization/builder.py                                       89      6    93%   68, 105-107, 200-202
+justpipe/visualization/mermaid.py                                      183     41    78%   106, 135, 212-226, 230-236, 271, 277-286, 291-309, 323
 justpipe/visualization/renderer.py                                       6      0   100%
 --------------------------------------------------------------------------------------------------
-TOTAL                                                                 4886    550    89%
-============================= 563 passed in 14.93s =============================
+TOTAL                                                                 4883    517    89%
+============================= 583 passed in 26.73s =============================

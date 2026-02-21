@@ -4,7 +4,7 @@ from typing import Any
 from justpipe.visualization import (
     _MermaidRenderer,
     MermaidTheme,
-    NodeKind,
+    VisualNodeKind,
     _PipelineASTBuilder,
     VisualAST,
     VisualEdge,
@@ -36,7 +36,7 @@ def test_mermaid_renderer_empty() -> None:
 
 def test_mermaid_renderer_simple() -> None:
     """Test rendering simple AST."""
-    node = VisualNode(id="n0", name="step", kind=NodeKind.STEP)
+    node = VisualNode(id="n0", name="step", kind=VisualNodeKind.STEP)
     ast = create_ast(nodes={"step": node})
     renderer = _MermaidRenderer(ast)
     output = renderer.render()
@@ -46,7 +46,7 @@ def test_mermaid_renderer_simple() -> None:
 
 def test_mermaid_renderer_streaming_shape() -> None:
     """Test streaming node shape."""
-    node = VisualNode(id="n0", name="stream", kind=NodeKind.STREAMING)
+    node = VisualNode(id="n0", name="stream", kind=VisualNodeKind.STREAMING)
     ast = create_ast(nodes={"stream": node})
     renderer = _MermaidRenderer(ast)
     output = renderer.render()
@@ -56,7 +56,7 @@ def test_mermaid_renderer_streaming_shape() -> None:
 
 def test_mermaid_renderer_map_shape() -> None:
     """Test map node shape."""
-    node = VisualNode(id="n0", name="mapper", kind=NodeKind.MAP)
+    node = VisualNode(id="n0", name="mapper", kind=VisualNodeKind.MAP)
     ast = create_ast(nodes={"mapper": node})
     renderer = _MermaidRenderer(ast)
     output = renderer.render()
@@ -66,7 +66,7 @@ def test_mermaid_renderer_map_shape() -> None:
 
 def test_mermaid_renderer_switch_shape() -> None:
     """Test switch node shape."""
-    node = VisualNode(id="n0", name="router", kind=NodeKind.SWITCH)
+    node = VisualNode(id="n0", name="router", kind=VisualNodeKind.SWITCH)
     ast = create_ast(nodes={"router": node})
     renderer = _MermaidRenderer(ast)
     output = renderer.render()
@@ -76,8 +76,8 @@ def test_mermaid_renderer_switch_shape() -> None:
 
 def test_mermaid_renderer_map_edge() -> None:
     """Test map edge rendering."""
-    n1 = VisualNode(id="n1", name="a", kind=NodeKind.MAP)
-    n2 = VisualNode(id="n2", name="b", kind=NodeKind.STEP, is_map_target=True)
+    n1 = VisualNode(id="n1", name="a", kind=VisualNodeKind.MAP)
+    n2 = VisualNode(id="n2", name="b", kind=VisualNodeKind.STEP, is_map_target=True)
     edge = VisualEdge(source="a", target="b", is_map_edge=True)
     ast = create_ast(nodes={"a": n1, "b": n2}, edges=[edge])
     renderer = _MermaidRenderer(ast)
@@ -88,8 +88,8 @@ def test_mermaid_renderer_map_edge() -> None:
 
 def test_mermaid_renderer_labeled_edge() -> None:
     """Test labeled edge rendering."""
-    n1 = VisualNode(id="n1", name="a", kind=NodeKind.SWITCH)
-    n2 = VisualNode(id="n2", name="b", kind=NodeKind.STEP)
+    n1 = VisualNode(id="n1", name="a", kind=VisualNodeKind.SWITCH)
+    n2 = VisualNode(id="n2", name="b", kind=VisualNodeKind.STEP)
     edge = VisualEdge(source="a", target="b", label="yes")
     ast = create_ast(nodes={"a": n1, "b": n2}, edges=[edge])
     renderer = _MermaidRenderer(ast)
@@ -144,11 +144,11 @@ def test_node_formatting() -> None:
     renderer = _MermaidRenderer(ast)
 
     # Test node with isolated status
-    node = VisualNode(id="n1", name="test", kind=NodeKind.STEP, is_isolated=True)
+    node = VisualNode(id="n1", name="test", kind=VisualNodeKind.STEP, is_isolated=True)
     output = renderer._render_node(node, "", is_isolated=True)
     assert ":::isolated" in output
 
     # Test sub-pipeline node
-    node = VisualNode(id="n2", name="sub", kind=NodeKind.SUB)
+    node = VisualNode(id="n2", name="sub", kind=VisualNodeKind.SUB)
     output = renderer._render_node(node, "")
     assert '/"Sub" /' in output

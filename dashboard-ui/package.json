@@ -9,10 +9,13 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@vueuse/core": "^14.2.1",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
+    "elkjs": "^0.11.0",
     "lucide-vue-next": "^0.563.0",
-    "mermaid": "^11.12.2",
+    "pinia": "^3.0.4",
+    "pixi.js": "^8.16.0",
     "reka-ui": "^2.8.0",
     "tailwind-merge": "^3.4.0",
     "vue": "^3.5.25",

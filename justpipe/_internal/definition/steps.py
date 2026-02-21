@@ -7,6 +7,7 @@ import inspect
 
 from justpipe.types import (
     BarrierType,
+    NodeKind,
     Stop,
     StepContext,
     _Map,
@@ -64,7 +65,7 @@ class _BaseStep(ABC):
         self._wrapped_func = wrapped
 
     @abstractmethod
-    def get_kind(self) -> str:
+    def get_kind(self) -> NodeKind:
         pass
 
     @abstractmethod
@@ -91,8 +92,8 @@ class _StandardStep(_BaseStep):
         super().__init__(name, func, **kwargs)
         self.to = to or []
 
-    def get_kind(self) -> str:
-        return "step"
+    def get_kind(self) -> NodeKind:
+        return NodeKind.STEP
 
     def get_targets(self) -> list[str]:
         return self.to
@@ -118,8 +119,8 @@ class _MapStep(_BaseStep):
         self.max_concurrency = max_concurrency
         self.max_map_items = max_map_items or self.DEFAULT_MAX_ITEMS
 
-    def get_kind(self) -> str:
-        return "map"
+    def get_kind(self) -> NodeKind:
+        return NodeKind.MAP
 
     def get_targets(self) -> list[str]:
         return [self.each] + self.to
@@ -164,8 +165,8 @@ class _SwitchStep(_BaseStep):
         self.to = to
         self.default = default
 
-    def get_kind(self) -> str:
-        return "switch"
+    def get_kind(self) -> NodeKind:
+        return NodeKind.SWITCH
 
     def get_targets(self) -> list[str]:
         targets: list[str] = []
@@ -233,8 +234,8 @@ class _SubPipelineStep(_BaseStep):
         self.pipeline = pipeline
         self.to = to or []
 
-    def get_kind(self) -> str:
-        return "sub"
+    def get_kind(self) -> NodeKind:
+        return NodeKind.SUB
 
     def get_targets(self) -> list[str]:
         return self.to

@@ -7,7 +7,7 @@ from typing import Any
 from collections.abc import Callable
 
 from justpipe.visualization.ast import (
-    NodeKind,
+    VisualNodeKind,
     ParallelGroup,
     VisualAST,
     VisualEdge,
@@ -19,7 +19,13 @@ from justpipe._internal.definition.steps import (
     _SwitchStep,
     _SubPipelineStep,
 )
-from justpipe.types import BarrierType
+from justpipe.types import BarrierType, NodeKind
+
+_VIS_KIND: dict[NodeKind, VisualNodeKind] = {
+    NodeKind.MAP: VisualNodeKind.MAP,
+    NodeKind.SWITCH: VisualNodeKind.SWITCH,
+    NodeKind.SUB: VisualNodeKind.SUB,
+}
 
 
 class _PipelineASTBuilder:
@@ -70,10 +76,11 @@ class _PipelineASTBuilder:
         }
 
         # Terminal nodes: nodes that have no outgoing edges
+        # Map targets are managed by the map step's barrier, not standalone terminals
         non_terminal = set(topology.keys()) | {
             n for n, step_obj in steps.items() if step_obj.get_targets()
         }
-        terminal_nodes = all_nodes - non_terminal
+        terminal_nodes = all_nodes - non_terminal - map_targets
 
         # Isolated nodes: registered but not connected AND not entry points
         isolated_nodes = set(steps.keys()) - (non_terminal | all_targets | entry_points)
@@ -87,18 +94,11 @@ class _PipelineASTBuilder:
             step: _BaseStep | None = steps.get(name)
 
             # Determine kind
-            kind_str = step.get_kind() if step else "step"
-
-            if kind_str == "switch":
-                kind = NodeKind.SWITCH
-            elif kind_str == "sub":
-                kind = NodeKind.SUB
-            elif kind_str == "map":
-                kind = NodeKind.MAP
-            elif name in streaming_nodes:
-                kind = NodeKind.STREAMING
+            types_kind = step.get_kind() if step else NodeKind.STEP
+            if name in streaming_nodes and types_kind == NodeKind.STEP:
+                kind = VisualNodeKind.STREAMING
             else:
-                kind = NodeKind.STEP
+                kind = _VIS_KIND.get(types_kind, VisualNodeKind.STEP)
 
             sub_graph = None
             if isinstance(step, _SubPipelineStep):

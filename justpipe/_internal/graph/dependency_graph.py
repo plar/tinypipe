@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 from typing import Any, TYPE_CHECKING
 from collections.abc import Callable
 
-from justpipe.types import BarrierType
+from justpipe.types import BarrierType, NodeKind
 from justpipe._internal.shared.utils import _resolve_name
 
 if TYPE_CHECKING:
@@ -57,6 +57,20 @@ class _DependencyGraph:
                     self._parents_map[child].add(parent)
         self._completed_parents.clear()
         self._satisfied_nodes.clear()
+
+        # Pre-compute switch sibling groups per child node.
+        # Switch targets are mutually exclusive — only one runs per execution.
+        # When a child has multiple parents from the same switch, we track
+        # which parents form an exclusive group so the ALL barrier can adjust.
+        self._switch_sibling_groups: dict[str, list[set[str]]] = {}
+        for name, step in self._steps.items():
+            if step.get_kind() != NodeKind.SWITCH:
+                continue
+            targets = set(step.get_targets())
+            for child, parents in self._parents_map.items():
+                group = targets & parents
+                if len(group) > 1:
+                    self._switch_sibling_groups.setdefault(child, []).append(group)
 
     def get_roots(self, start: str | Callable[..., Any] | None = None) -> set[str]:
         """Determine entry points for execution."""
@@ -145,7 +159,15 @@ class _DependencyGraph:
 
     def _is_all_parents_completed(self, node: str) -> bool:
         """Check if every expected parent has reported completion."""
-        return self._completed_parents[node] >= self._parents_map[node]
+        completed = self._completed_parents[node]
+        required = set(self._parents_map[node])
+
+        # Switch siblings are mutually exclusive — if any completed, others won't run
+        for group in self._switch_sibling_groups.get(node, []):
+            if completed & group:  # At least one sibling completed
+                required -= group - completed  # Remove unreachable siblings
+
+        return completed >= required
 
     def is_barrier_satisfied(self, node: str) -> bool:
         """Check if a node's barrier is met (all parents finished)."""

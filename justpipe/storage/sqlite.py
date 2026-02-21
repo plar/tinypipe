@@ -5,8 +5,11 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any
 
 from justpipe.storage.interface import RunRecord, StoredEvent
 from justpipe.types import EventType, PipelineTerminalStatus
@@ -62,8 +65,26 @@ class SQLiteBackend:
         conn = sqlite3.connect(self._db_path)
         try:
             conn.executescript(_SCHEMA)
+            self._migrate(conn)
         finally:
             conn.close()
+
+    @staticmethod
+    def _migrate(conn: sqlite3.Connection) -> None:
+        """Add/rename columns that may be missing from older databases."""
+        existing = {
+            row[1] for row in conn.execute("PRAGMA table_info(runs)").fetchall()
+        }
+        # Rename user_meta → run_meta (from earlier schema version)
+        if "user_meta" in existing and "run_meta" not in existing:
+            conn.execute("ALTER TABLE runs RENAME COLUMN user_meta TO run_meta")
+            existing.discard("user_meta")
+            existing.add("run_meta")
+        # Add columns that may be entirely missing
+        for col, typ in [("run_meta", "TEXT"), ("error_step", "TEXT")]:
+            if col not in existing:
+                conn.execute(f"ALTER TABLE runs ADD COLUMN {col} {typ}")
+        conn.commit()
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self._db_path)
@@ -71,9 +92,28 @@ class SQLiteBackend:
         conn.execute("PRAGMA foreign_keys = ON")
         return conn
 
-    def save_run(self, run: RunRecord, events: list[str]) -> None:
+    @contextmanager
+    def _conn(self) -> Iterator[sqlite3.Connection]:
         conn = self._connect()
         try:
+            yield conn
+        finally:
+            conn.close()
+
+    @contextmanager
+    def _transaction(self) -> Iterator[sqlite3.Connection]:
+        conn = self._connect()
+        try:
+            yield conn
+            conn.commit()
+        except Exception:
+            conn.rollback()
+            raise
+        finally:
+            conn.close()
+
+    def save_run(self, run: RunRecord, events: list[str]) -> None:
+        with self._transaction() as conn:
             # If a placeholder row exists from append_events (status='running'),
             # UPDATE it in place.  INSERT OR REPLACE would trigger ON DELETE
             # CASCADE and destroy already-flushed events.
@@ -128,16 +168,9 @@ class SQLiteBackend:
                        VALUES (?, ?, ?, ?)""",
                     (run.run_id, seq, parsed.get("timestamp", 0), data),
                 )
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-        finally:
-            conn.close()
 
     def append_events(self, run_id: str, events: list[str]) -> None:
-        conn = self._connect()
-        try:
+        with self._transaction() as conn:
             # Ensure a placeholder run row exists for FK constraints.
             # The final save_run call will update it with real metadata.
             conn.execute(
@@ -154,24 +187,13 @@ class SQLiteBackend:
                        VALUES (?, ?, ?, ?)""",
                     (run_id, seq, parsed.get("timestamp", 0), data),
                 )
-            conn.commit()
-        except Exception:
-            conn.rollback()
-            raise
-        finally:
-            conn.close()
 
     def get_run(self, run_id: str) -> RunRecord | None:
-        conn = self._connect()
-        try:
+        with self._conn() as conn:
             row = conn.execute(
                 "SELECT * FROM runs WHERE run_id = ?", (run_id,)
             ).fetchone()
-            if row is None:
-                return None
-            return self._row_to_run(row)
-        finally:
-            conn.close()
+            return self._row_to_run(row) if row else None
 
     def list_runs(
         self,
@@ -179,44 +201,34 @@ class SQLiteBackend:
         limit: int = 100,
         offset: int = 0,
     ) -> list[RunRecord]:
-        conn = self._connect()
-        try:
+        with self._conn() as conn:
+            query = "SELECT * FROM runs"
+            params: list[Any] = []
             if status is not None:
-                rows = conn.execute(
-                    "SELECT * FROM runs WHERE status = ? ORDER BY start_time DESC LIMIT ? OFFSET ?",
-                    (status.value, limit, offset),
-                ).fetchall()
-            else:
-                rows = conn.execute(
-                    "SELECT * FROM runs ORDER BY start_time DESC LIMIT ? OFFSET ?",
-                    (limit, offset),
-                ).fetchall()
-            return [self._row_to_run(r) for r in rows]
-        finally:
-            conn.close()
+                query += " WHERE status = ?"
+                params.append(status.value)
+            query += " ORDER BY start_time DESC LIMIT ? OFFSET ?"
+            params.extend([limit, offset])
+            return [self._row_to_run(r) for r in conn.execute(query, params).fetchall()]
 
     def get_events(
         self,
         run_id: str,
         event_type: EventType | None = None,
     ) -> list[StoredEvent]:
-        conn = self._connect()
-        try:
+        with self._conn() as conn:
+            query = (
+                "SELECT seq, timestamp, event_type, step_name, data "
+                "FROM events WHERE run_id = ?"
+            )
+            params: list[Any] = [run_id]
             if event_type is not None:
-                rows = conn.execute(
-                    "SELECT seq, timestamp, event_type, step_name, data "
-                    "FROM events WHERE run_id = ? AND event_type = ? ORDER BY seq ASC",
-                    (run_id, event_type.value),
-                ).fetchall()
-            else:
-                rows = conn.execute(
-                    "SELECT seq, timestamp, event_type, step_name, data "
-                    "FROM events WHERE run_id = ? ORDER BY seq ASC",
-                    (run_id,),
-                ).fetchall()
-            return [self._row_to_event(r) for r in rows]
-        finally:
-            conn.close()
+                query += " AND event_type = ?"
+                params.append(event_type.value)
+            query += " ORDER BY seq ASC"
+            return [
+                self._row_to_event(r) for r in conn.execute(query, params).fetchall()
+            ]
 
     _RUN_ID_SAFE = re.compile(r"^[a-zA-Z0-9\-_]+$")
 
@@ -225,8 +237,7 @@ class SQLiteBackend:
     ) -> list[RunRecord]:
         if not run_id_prefix or not self._RUN_ID_SAFE.match(run_id_prefix):
             return []
-        conn = self._connect()
-        try:
+        with self._conn() as conn:
             escaped = (
                 run_id_prefix.replace("\\", "\\\\")
                 .replace("%", "\\%")
@@ -237,17 +248,11 @@ class SQLiteBackend:
                 (escaped + "%", limit),
             ).fetchall()
             return [self._row_to_run(r) for r in rows]
-        finally:
-            conn.close()
 
     def delete_run(self, run_id: str) -> bool:
-        conn = self._connect()
-        try:
+        with self._transaction() as conn:
             cursor = conn.execute("DELETE FROM runs WHERE run_id = ?", (run_id,))
-            conn.commit()
             return cursor.rowcount > 0
-        finally:
-            conn.close()
 
     @staticmethod
     def _row_to_run(row: sqlite3.Row) -> RunRecord:
