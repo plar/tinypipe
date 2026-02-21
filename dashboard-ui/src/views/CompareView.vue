@@ -7,6 +7,7 @@ import { formatDuration, shortId } from '@/lib/utils'
 import MetricTile from '@/components/ui/MetricTile.vue'
 import Badge from '@/components/ui/Badge.vue'
 import LoadingState from '@/components/ui/LoadingState.vue'
+import ErrorBanner from '@/components/ui/ErrorBanner.vue'
 import { AlertTriangle } from 'lucide-vue-next'
 
 const route = useRoute()
@@ -112,9 +113,7 @@ const firstDivergence = computed(() => {
     </div>
 
     <LoadingState v-if="loading" text="Comparing runs..." />
-    <div v-if="error" class="mt-4 rounded-lg border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive">
-      {{ error }}
-    </div>
+    <ErrorBanner v-if="error" :message="error" class="mt-4" />
 
     <!-- Results -->
     <template v-if="comparison">

@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onBeforeUnmount, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useRunStore } from '@/stores/run'
 import { useReplayStore } from '@/stores/replay'
 import { formatDuration, formatTimestamp, shortId } from '@/lib/utils'
+import { statusBadgeVariant } from '@/lib/view-helpers'
+import { useKeyboard } from '@/composables/useKeyboard'
 import type { StepTiming, BarrierMetrics, PipelineSummary } from '@/types'
 import { api } from '@/api/client'
 import TabBar from '@/components/ui/TabBar.vue'
@@ -11,17 +13,20 @@ import MetricTile from '@/components/ui/MetricTile.vue'
 import StatusIndicator from '@/components/ui/StatusIndicator.vue'
 import Badge from '@/components/ui/Badge.vue'
 import LoadingState from '@/components/ui/LoadingState.vue'
+import ErrorBanner from '@/components/ui/ErrorBanner.vue'
 import WaterfallTimeline from '@/components/timeline/WaterfallTimeline.vue'
 import ConcurrencyChart from '@/components/timeline/ConcurrencyChart.vue'
 import FailureAutopsy from '@/components/inspector/FailureAutopsy.vue'
 import StepInspector from '@/components/inspector/StepInspector.vue'
+import DagErrorBoundary from '@/components/dag/DagErrorBoundary.vue'
 import DagCanvasPixi from '@/components/dag/DagCanvasPixi.vue'
 import DagLegend from '@/components/dag/DagLegend.vue'
 import ReplayControls from '@/components/replay/ReplayControls.vue'
 import ArtifactBrowser from '@/components/artifacts/ArtifactBrowser.vue'
-import { ArrowLeft, ChevronRight } from 'lucide-vue-next'
+import { ArrowLeft, ChevronRight, GitCompareArrows } from 'lucide-vue-next'
 
 const route = useRoute()
+const router = useRouter()
 const runStore = useRunStore()
 const replay = useReplayStore()
 
@@ -43,6 +48,13 @@ const tabs = [
   { key: 'artifacts', label: 'Artifacts' },
   { key: 'meta', label: 'Meta' },
 ]
+
+// Keyboard shortcuts
+useKeyboard({
+  tabKeys: tabs.map((t) => t.key),
+  onTab: (key) => { activeTab.value = key },
+  onEscape: () => { selectedStep.value = null },
+})
 
 // Metrics helpers
 const metrics = computed(() => runStore.runtimeMetrics)
@@ -109,13 +121,8 @@ function toggleEvent(seq: number) {
   }
 }
 
-function statusBadgeVariant(s: string): 'success' | 'destructive' | 'warning' | 'muted' {
-  switch (s) {
-    case 'success': return 'success'
-    case 'failed': return 'destructive'
-    case 'timeout': return 'warning'
-    default: return 'muted'
-  }
+function goToCompare() {
+  router.push({ path: '/compare', query: { run1: runId.value } })
 }
 
 // Load replay data when switching to replay tab
@@ -152,19 +159,26 @@ onBeforeUnmount(() => {
 <template>
   <div>
     <LoadingState v-if="runStore.loading" />
-    <div v-else-if="runStore.error" class="rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
-      {{ runStore.error }}
-    </div>
+    <ErrorBanner v-else-if="runStore.error" :message="runStore.error" />
     <template v-else-if="runStore.run">
       <!-- Header -->
       <div class="mb-6">
-        <RouterLink
-          :to="`/pipeline/${runStore.run.pipeline_hash}`"
-          class="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
-        >
-          <ArrowLeft class="h-3.5 w-3.5" />
-          {{ runStore.run.pipeline_name }}
-        </RouterLink>
+        <div class="flex items-center justify-between">
+          <RouterLink
+            :to="`/pipeline/${runStore.run.pipeline_hash}`"
+            class="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground transition-colors"
+          >
+            <ArrowLeft class="h-3.5 w-3.5" />
+            {{ runStore.run.pipeline_name }}
+          </RouterLink>
+          <button
+            class="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-xs text-muted-foreground transition-colors hover:bg-accent/30 hover:text-foreground"
+            @click="goToCompare"
+          >
+            <GitCompareArrows class="h-3.5 w-3.5" />
+            Compare with...
+          </button>
+        </div>
 
         <div class="mt-2 flex items-center gap-3">
           <StatusIndicator :status="runStore.run.status" size="lg" :pulse="runStore.run.status === 'success'" />
@@ -269,7 +283,7 @@ onBeforeUnmount(() => {
 
           <!-- Step Latency table -->
           <div v-if="stepLatencyRows.length" class="mb-6 overflow-hidden rounded-lg border border-border">
-            <h4 class="border-b border-border bg-card px-4 py-3 text-sm font-medium text-foreground">Step Latency</h4>
+            <h4 class="border-l-2 border-primary/40 pl-3 border-b border-border bg-card px-4 py-3 text-sm font-medium text-foreground">Step Latency</h4>
             <table class="w-full text-sm">
               <thead class="bg-muted/50 text-left text-xs uppercase tracking-wider text-muted-foreground">
                 <tr>
@@ -294,7 +308,7 @@ onBeforeUnmount(() => {
 
           <!-- Barrier Stats -->
           <div v-if="barrierRows.length" class="mb-6 overflow-hidden rounded-lg border border-border">
-            <h4 class="border-b border-border bg-card px-4 py-3 text-sm font-medium text-foreground">Barrier Statistics</h4>
+            <h4 class="border-l-2 border-primary/40 pl-3 border-b border-border bg-card px-4 py-3 text-sm font-medium text-foreground">Barrier Statistics</h4>
             <table class="w-full text-sm">
               <thead class="bg-muted/50 text-left text-xs uppercase tracking-wider text-muted-foreground">
                 <tr>
@@ -319,7 +333,7 @@ onBeforeUnmount(() => {
 
           <!-- Map Stats -->
           <div v-if="metrics.maps.maps_started > 0" class="mb-6 rounded-lg border border-border bg-card p-4">
-            <h4 class="mb-3 text-sm font-medium text-foreground">Map Statistics</h4>
+            <h4 class="border-l-2 border-primary/40 pl-3 mb-3 text-sm font-medium text-foreground">Map Statistics</h4>
             <div class="grid gap-4 sm:grid-cols-4">
               <div>
                 <p class="text-xs uppercase tracking-wider text-muted-foreground">Maps Started</p>
@@ -342,7 +356,7 @@ onBeforeUnmount(() => {
 
           <!-- Event Type Breakdown -->
           <div v-if="eventTypeRows.length" class="rounded-lg border border-border bg-card p-4">
-            <h4 class="mb-3 text-sm font-medium text-foreground">Event Type Breakdown</h4>
+            <h4 class="border-l-2 border-primary/40 pl-3 mb-3 text-sm font-medium text-foreground">Event Type Breakdown</h4>
             <div class="space-y-2">
               <div v-for="[type, count] in eventTypeRows" :key="type" class="flex items-center gap-3">
                 <span class="w-32 truncate font-mono text-xs text-muted-foreground">{{ type }}</span>
@@ -365,17 +379,19 @@ onBeforeUnmount(() => {
       <div v-if="activeTab === 'replay'">
         <LoadingState v-if="replayLoading" text="Loading pipeline topology..." />
         <div v-else-if="replayPipeline?.topology">
-          <DagCanvasPixi
-            :topology="replayPipeline.topology"
-            :visual-ast="replayPipeline.visual_ast"
-            :replay-statuses="replay.activeSteps"
-            :replay-time-ms="replay.currentTimeMs"
-            :replay-step-timings="replay.stepTimings"
-          >
-            <template #legend>
-              <DagLegend />
-            </template>
-          </DagCanvasPixi>
+          <DagErrorBoundary>
+            <DagCanvasPixi
+              :topology="replayPipeline.topology"
+              :visual-ast="replayPipeline.visual_ast"
+              :replay-statuses="replay.activeSteps"
+              :replay-time-ms="replay.currentTimeMs"
+              :replay-step-timings="replay.stepTimings"
+            >
+              <template #legend>
+                <DagLegend />
+              </template>
+            </DagCanvasPixi>
+          </DagErrorBoundary>
           <ReplayControls />
         </div>
         <div v-else class="rounded-lg border border-border bg-card p-8 text-center text-sm text-muted-foreground">

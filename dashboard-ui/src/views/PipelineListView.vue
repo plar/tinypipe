@@ -1,16 +1,21 @@
 <script setup lang="ts">
-import { onMounted, computed } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { usePipelinesStore } from '@/stores/pipelines'
 import { useUiStore } from '@/stores/ui'
 import { formatDuration, relativeTime } from '@/lib/utils'
+import { statusForRate } from '@/lib/view-helpers'
+import { useKeyboard } from '@/composables/useKeyboard'
 import MetricTile from '@/components/ui/MetricTile.vue'
 import StatusIndicator from '@/components/ui/StatusIndicator.vue'
 import LoadingState from '@/components/ui/LoadingState.vue'
 import EmptyState from '@/components/ui/EmptyState.vue'
+import ErrorBanner from '@/components/ui/ErrorBanner.vue'
 import { LayoutGrid, List, ArrowRight } from 'lucide-vue-next'
 
 const store = usePipelinesStore()
 const ui = useUiStore()
+const search = ref('')
+const searchInputRef = ref<HTMLInputElement | null>(null)
 
 onMounted(() => {
   store.fetchPipelines()
@@ -24,11 +29,13 @@ const avgDuration = computed(() => {
   return formatDuration(durations.reduce((a, b) => a + b, 0) / durations.length)
 })
 
-function statusForRate(rate: number): string {
-  if (rate >= 90) return 'success'
-  if (rate >= 70) return 'timeout'
-  return 'failed'
-}
+const filtered = computed(() =>
+  store.pipelines.filter((p) => p.name.toLowerCase().includes(search.value.toLowerCase()))
+)
+
+useKeyboard({
+  searchRef: searchInputRef,
+})
 </script>
 
 <template>
@@ -78,13 +85,21 @@ function statusForRate(rate: number): string {
       />
     </div>
 
+    <!-- Search -->
+    <div v-if="store.pipelines.length > 0" class="mb-4">
+      <input
+        ref="searchInputRef"
+        v-model="search"
+        placeholder="Filter pipelines...  (press / to focus)"
+        class="w-full rounded-md border border-border bg-input px-3 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-primary/50 focus:outline-none focus:ring-1 focus:ring-primary/30"
+      />
+    </div>
+
     <!-- Loading -->
     <LoadingState v-if="store.loading" text="Discovering pipelines..." />
 
     <!-- Error -->
-    <div v-else-if="store.error" class="rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
-      {{ store.error }}
-    </div>
+    <ErrorBanner v-else-if="store.error" :message="store.error" />
 
     <!-- Empty -->
     <EmptyState
@@ -93,13 +108,21 @@ function statusForRate(rate: number): string {
       description="Run a pipeline with persist=True to see data here."
     />
 
+    <!-- No search results -->
+    <div
+      v-else-if="filtered.length === 0"
+      class="rounded-lg border border-border bg-card p-8 text-center text-sm text-muted-foreground"
+    >
+      No pipelines match "{{ search }}"
+    </div>
+
     <!-- Card grid -->
     <div
       v-else-if="ui.viewMode === 'cards'"
       class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 stagger-reveal"
     >
       <RouterLink
-        v-for="p in store.pipelines"
+        v-for="p in filtered"
         :key="p.hash"
         :to="`/pipeline/${p.hash}`"
         class="group rounded-lg border border-border bg-card p-5 transition-all hover:border-primary/30 hover:shadow-lg hover:shadow-primary/5"
@@ -156,7 +179,7 @@ function statusForRate(rate: number): string {
         </thead>
         <tbody class="divide-y divide-border">
           <tr
-            v-for="p in store.pipelines"
+            v-for="p in filtered"
             :key="p.hash"
             class="cursor-pointer transition-colors hover:bg-accent/30"
             @click="$router.push(`/pipeline/${p.hash}`)"
