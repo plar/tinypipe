@@ -1,5 +1,5 @@
 ============================= test session starts ==============================
-platform linux -- Python 3.12.12, pytest-9.0.2, pluggy-1.6.0
+platform linux -- Python 3.12.13, pytest-9.0.2, pluggy-1.6.0
 benchmark: 5.2.3 (defaults: timer=time.perf_counter disable_gc=False min_rounds=5 min_time=0.000005 max_time=1.0 calibration_precision=10 warmup=False warmup_iterations=100000)
 rootdir: /home/runner/work/justpipe/justpipe
 configfile: pyproject.toml
@@ -102,7 +102,7 @@ justpipe/testing.py:13
 
 -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
 ================================ tests coverage ================================
-_______________ coverage: platform linux, python 3.12.12-final-0 _______________
+_______________ coverage: platform linux, python 3.12.13-final-0 _______________
 
 Name                                                                 Stmts   Miss  Cover   Missing
 --------------------------------------------------------------------------------------------------
@@ -194,4 +194,4 @@ justpipe/visualization/mermaid.py                                      183     4
 justpipe/visualization/renderer.py                                       6      0   100%
 --------------------------------------------------------------------------------------------------
 TOTAL                                                                 4940    516    90%
-======================= 630 passed, 1 warning in 27.45s ========================
+======================= 630 passed, 1 warning in 26.19s ========================
